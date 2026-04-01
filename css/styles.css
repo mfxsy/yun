@@ -10682,7 +10682,7 @@
     border: none;
     background: rgba(255, 255, 255, 0.12);
     backdrop-filter: blur(8px);
-    color: rgba(255, 255, 255, 0.75);
+    color:var(--text-secondary);
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -10703,7 +10703,7 @@
 .minimize-btn:hover,
 .close-player-btn:hover {
     background: rgba(255, 255, 255, 0.22);
-    color: #000000;          /* 文字颜色变黑，SVG的stroke会继承此颜色 */
+    color:var(--text-secondary);      /* 文字颜色变黑，SVG的stroke会继承此颜色 */
     transform: scale(1.08);
 }
 
