@@ -1279,48 +1279,61 @@ function initComboMenu() {
     const item = document.createElement('div');
     item.className = 'sticker-grid-item';
     item.style.position = 'relative';
-    // 不显示删除按钮，避免误触
+    // 不显示删除按钮
     item.innerHTML = `<img src="${src}" loading="lazy">`;
 
-    const img = item.querySelector('img');
-
-    // 单击发送表情
-    img.onclick = (e) => {
-        e.stopPropagation();
-        onClick();
-    };
-
-    // 长按删除逻辑（1秒）
     let pressTimer = null;
+    let isLongPress = false;
     const LONG_PRESS_TIME = 1000; // 1秒
 
-    const startPress = (e) => {
-        // 阻止默认行为（避免选中文字或右键菜单）
-        e.preventDefault();
-        pressTimer = setTimeout(() => {
-            if (onDelete && confirm('确定要删除此表情吗？')) {
-                onDelete();
-            }
-            pressTimer = null;
-        }, LONG_PRESS_TIME);
-    };
-
-    const cancelPress = () => {
+    // 清除计时器
+    const clearPressTimer = () => {
         if (pressTimer) {
             clearTimeout(pressTimer);
             pressTimer = null;
         }
     };
 
-    // 移动端触摸事件
-    item.addEventListener('touchstart', startPress, { passive: false });
-    item.addEventListener('touchend', cancelPress);
-    item.addEventListener('touchcancel', cancelPress);
+    // 开始触摸/按下
+    const startPress = (e) => {
+        // 注意：不要在这里 preventDefault()，否则会阻止 click 事件
+        isLongPress = false;
+        clearPressTimer();
+        pressTimer = setTimeout(() => {
+            isLongPress = true;
+            if (onDelete && confirm('确定要删除此表情吗？')) {
+                onDelete();
+            }
+            clearPressTimer();
+        }, LONG_PRESS_TIME);
+    };
 
-    // PC 端鼠标事件（便于调试）
+    // 结束触摸/松开
+    const endPress = (e) => {
+        if (pressTimer) {
+            clearPressTimer();
+            // 如果没有触发长按，则视为单击发送
+            if (!isLongPress) {
+                e.stopPropagation();
+                onClick();
+            }
+        }
+    };
+
+    // 移动端触摸事件
+    item.addEventListener('touchstart', startPress, { passive: true });
+    item.addEventListener('touchend', endPress);
+    item.addEventListener('touchcancel', clearPressTimer);
+    // 防止触摸移动时意外取消（可选，但不清除计时器会导致长按误触发）
+    item.addEventListener('touchmove', (e) => {
+        // 如果移动超过阈值，取消长按（避免滑动时误删）
+        clearPressTimer();
+    });
+
+    // PC 端鼠标事件
     item.addEventListener('mousedown', startPress);
-    item.addEventListener('mouseup', cancelPress);
-    item.addEventListener('mouseleave', cancelPress);
+    item.addEventListener('mouseup', endPress);
+    item.addEventListener('mouseleave', clearPressTimer);
 
     return item;
 }
