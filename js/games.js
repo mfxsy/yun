@@ -1275,27 +1275,27 @@ function initComboMenu() {
         return item;
     }
 
-    function makeDeletableStickerItem(src, onClick, onDelete) {
+  function makeDeletableStickerItem(src, onClick, onDelete) {
     const item = document.createElement('div');
     item.className = 'sticker-grid-item';
     item.style.position = 'relative';
-    // 不再显示删除按钮，只显示图片
+    // 不显示删除按钮，避免误触
     item.innerHTML = `<img src="${src}" loading="lazy">`;
 
     const img = item.querySelector('img');
-    
-    // 单击 → 发送表情
+
+    // 单击发送表情
     img.onclick = (e) => {
         e.stopPropagation();
         onClick();
     };
 
-    // 长按 2 秒 → 删除确认
+    // 长按删除逻辑（1秒）
     let pressTimer = null;
-    const LONG_PRESS_TIME = 2000; // 2秒
+    const LONG_PRESS_TIME = 1000; // 1秒
 
     const startPress = (e) => {
-        // 阻止默认行为（避免选中文字或弹出上下文菜单）
+        // 阻止默认行为（避免选中文字或右键菜单）
         e.preventDefault();
         pressTimer = setTimeout(() => {
             if (onDelete && confirm('确定要删除此表情吗？')) {
@@ -1313,10 +1313,11 @@ function initComboMenu() {
     };
 
     // 移动端触摸事件
-    item.addEventListener('touchstart', startPress);
+    item.addEventListener('touchstart', startPress, { passive: false });
     item.addEventListener('touchend', cancelPress);
     item.addEventListener('touchcancel', cancelPress);
-    // PC 端鼠标事件（方便调试）
+
+    // PC 端鼠标事件（便于调试）
     item.addEventListener('mousedown', startPress);
     item.addEventListener('mouseup', cancelPress);
     item.addEventListener('mouseleave', cancelPress);
