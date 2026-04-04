@@ -10716,14 +10716,3 @@
 .close-player-btn svg {
     stroke-width: 2.0;  /* 更粗的×线，可根据需要修改 */
 }
-
-/* 触摸设备（手机/平板）上强制显示删除按钮 */
-@media (hover: none) and (pointer: coarse) {
-    .sticker-delete-btn,
-    .sticker-item .sticker-delete-btn,
-    .sticker-grid-item .sticker-delete-btn {
-        display: flex !important;
-        opacity: 1 !important;
-        visibility: visible !important;
-    }
-}
