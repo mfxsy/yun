@@ -238,6 +238,7 @@ async function exportAllData() {
         const payload = {
             version: '3.1-full', appName: 'ChatApp',
             exportDate: new Date().toISOString(), type: 'full',
+            sessionId: SESSION_ID,   // ← 新增
             indexedDB: idbData, localStorage: lsData
         };
         const str = JSON.stringify(payload, null, 2);
@@ -263,16 +264,43 @@ async function importAllData(file) {
             }
             if (!confirm('全量恢复将覆盖所有现有数据，确认继续？')) return;
             showNotification('正在恢复数据…', 'info', 3000);
+            
+            const currentSessionId = SESSION_ID;
+            const prefix = APP_PREFIX;
+            // 定义不需要映射会话 ID 的全局键（跨会话共享）
+            const globalKeys = new Set([
+                'sessionList', 'lastSessionId', 'customThemes', 'themeSchemes',
+                'MIGRATION_V2_DONE', 'playerCover', 'customSongs'
+            ]);
+            
+            // 处理 indexedDB 数据，将会话相关的键映射到当前会话 ID
             if (data.indexedDB) {
                 for (const [k, v] of Object.entries(data.indexedDB)) {
-                    try { await localforage.setItem(k, v); } catch(err) {}
+                    let newKey = k;
+                    // 如果键名以 APP_PREFIX 开头且不是全局键，则尝试映射会话 ID
+                    if (k.startsWith(prefix)) {
+                        const afterPrefix = k.slice(prefix.length);
+                        const firstUnderscore = afterPrefix.indexOf('_');
+                        if (firstUnderscore > 0) {
+                            const maybeSessionId = afterPrefix.slice(0, firstUnderscore);
+                            const rest = afterPrefix.slice(firstUnderscore + 1);
+                            // 如果提取的部分看起来像会话 ID（且不是全局键名）
+                            if (!globalKeys.has(maybeSessionId) && maybeSessionId.length > 5) {
+                                newKey = prefix + currentSessionId + '_' + rest;
+                            }
+                        }
+                    }
+                    try { await localforage.setItem(newKey, v); } catch(err) {}
                 }
             }
+            
+            // 处理 localStorage，同样需要映射会话相关的键（但 localStorage 中通常没有会话前缀，可以忽略）
             if (data.localStorage) {
                 for (const [k, v] of Object.entries(data.localStorage)) {
                     try { localStorage.setItem(k, v); } catch(err) {}
                 }
             }
+            
             showNotification('恢复成功，即将刷新页面…', 'success', 2000);
             setTimeout(() => location.reload(), 2200);
         } catch(e) {
