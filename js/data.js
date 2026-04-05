@@ -182,27 +182,48 @@
         return (b / 1048576).toFixed(2) + ' MB';
     }
 
-    function applyStats(total, msgs, cfg, media) {
-        var pct = Math.min(100, total / (5 * 1024 * 1024) * 100);
+    function applyStats(total, msgs, cfg, media, quota = null) {
         var g = function (id) { return document.getElementById(id); };
         var bar = g('dm-storage-bar');
-        if (bar) {
-            bar.style.width = pct.toFixed(1) + '%';
-            bar.style.background = pct > 80
-                ? 'linear-gradient(90deg,#FF3B30,#CC0000)'
-                : pct > 50
-                ? 'linear-gradient(90deg,#FF9F0A,#E07000)'
-                : 'linear-gradient(90deg,var(--accent-color),rgba(var(--accent-color-rgb),0.6))';
-        }
-        if (g('dm-storage-total')) g('dm-storage-total').textContent = fmt(total) + ' / ~5 MB';
-        if (g('dm-stat-msgs'))     g('dm-stat-msgs').textContent     = fmt(msgs);
-        if (g('dm-stat-settings')) g('dm-stat-settings').textContent = fmt(cfg);
-        if (g('dm-stat-media'))    g('dm-stat-media').textContent    = fmt(media);
+        var totalEl = g('dm-storage-total');
+    
+        if (quota && quota > 0) {
+            // 使用真实配额显示百分比
+            var pct = Math.min(100, (total / quota) * 100);
+            if (bar) {
+                bar.style.width = pct.toFixed(1) + '%';
+                bar.style.background = pct > 80
+                    ? 'linear-gradient(90deg,#FF3B30,#CC0000)'
+                    : pct > 50
+                    ? 'linear-gradient(90deg,#FF9F0A,#E07000)'
+                    : 'linear-gradient(90deg,var(--accent-color),rgba(var(--accent-color-rgb),0.6))';
+            }
+            if (totalEl) totalEl.textContent = fmt(total) + ' / ' + fmt(quota);
+        } else {
+            // 降级：只显示已用量，不显示总量和百分比
+            if (bar) bar.style.display = 'none';
+            if (totalEl) totalEl.textContent = fmt(total);
     }
+    
+    if (g('dm-stat-msgs'))     g('dm-stat-msgs').textContent     = fmt(msgs);
+    if (g('dm-stat-settings')) g('dm-stat-settings').textContent = fmt(cfg);
+    if (g('dm-stat-media'))    g('dm-stat-media').textContent    = fmt(media);
+}
 
     function updateStats() {
         var total = 0, msgs = 0, cfg = 0, media = 0;
-        var processLS = function () {
+        var quota = null;
+    
+        // 获取浏览器真实存储配额
+        var quotaPromise = (navigator.storage && navigator.storage.estimate)
+            ? navigator.storage.estimate().then(function(estimate) {
+                quota = estimate.quota;
+            }).catch(function(e) {
+                console.warn('获取存储配额失败', e);
+            })
+            : Promise.resolve();
+    
+        var processLS = function() {
             for (var i = 0; i < localStorage.length; i++) {
                 var k = localStorage.key(i) || '';
                 var v = localStorage.getItem(k) || '';
@@ -212,30 +233,39 @@
                 else if (v.startsWith('data:image') || v.startsWith('data:video')) media += bytes;
                 else cfg += bytes;
             }
-            applyStats(total, msgs, cfg, media);
+            applyStats(total, msgs, cfg, media, quota);
         };
-        try {
-            if (window.localforage) {
-                localforage.keys().then(function (keys) {
-                    var promises = keys.map(function (k) {
-                        return localforage.getItem(k).then(function (raw) {
-                            if (raw == null) return { k: k, b: 0 };
-                            var str = typeof raw === 'string' ? raw : JSON.stringify(raw);
-                            return { k: k, b: (k.length + str.length) * 2 };
-                        });
+    
+        var localforagePromise = window.localforage
+            ? localforage.keys().then(function(keys) {
+                var promises = keys.map(function(k) {
+                    return localforage.getItem(k).then(function(raw) {
+                        if (raw == null) return { k: k, b: 0 };
+                        var str = typeof raw === 'string' ? raw : JSON.stringify(raw);
+                        return { k: k, b: (k.length + str.length) * 2 };
                     });
-                    Promise.all(promises).then(function (results) {
-                        results.forEach(function (r) {
-                            total += r.b;
-                            if (/messages|msgs|session/i.test(r.k)) msgs += r.b;
-                            else if (/avatar|image|photo|bg|background|wallpaper/i.test(r.k)) media += r.b;
-                            else cfg += r.b;
-                        });
-                        applyStats(total, msgs, cfg, media);
-                    }).catch(processLS);
-                }).catch(processLS);
-            } else { processLS(); }
-        } catch (e) { processLS(); }
+                });
+                return Promise.all(promises);
+            }).then(function(results) {
+                results.forEach(function(r) {
+                    total += r.b;
+                    if (/messages|msgs|session/i.test(r.k)) msgs += r.b;
+                    else if (/avatar|image|photo|bg|background|wallpaper|sticker|表情/i.test(r.k)) media += r.b;
+                    else cfg += r.b;
+                });
+                applyStats(total, msgs, cfg, media, quota);
+            }).catch(function(e) {
+                console.error('updateStats 错误:', e);
+                processLS();
+            })
+            : null;
+    
+        // 等待配额获取和 IndexedDB 遍历都完成
+        quotaPromise.then(function() {
+            if (!localforagePromise) {
+                processLS();
+            }
+        });
     }
 
     function syncToggles() {
