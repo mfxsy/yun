@@ -1238,6 +1238,11 @@ if (!isBatchMode && type === 'normal') {
     if (window._pendingReplyTimer) clearTimeout(window._pendingReplyTimer);
     window._pendingReplyTimer = null;
 
+     // 如果因删除最新消息而暂停回复，则清除标志，恢复回复能力
+    if (window._replySuspended) {
+        window._replySuspended = false;
+    }
+
     if (!shouldIgnore) {
         if (settings.typingIndicatorEnabled) {
             const tiWrapper = document.getElementById('typing-indicator-wrapper');

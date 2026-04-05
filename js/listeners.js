@@ -78,6 +78,17 @@ if (target.classList.contains('delete-btn')) {
     if (confirm('确定要删除这条消息吗？')) {
         const index = messages.findIndex(m => m.id === messageId);
         if (index > -1) {
+             // 判断删除的是否为“我方最新消息”
+            const isLatestUserMsg = (index === messages.length - 1) && messages[index].sender === 'user';
+            if (isLatestUserMsg) {
+                if (window._pendingReplyTimer) {
+                    clearTimeout(window._pendingReplyTimer);
+                    window._pendingReplyTimer = null;
+                }
+                const tiWrapper = document.getElementById('typing-indicator-wrapper');
+                if (tiWrapper) tiWrapper.style.display = 'none';
+                window._replySuspended = true;
+            }
             const savedScrollTop = DOMElements.chatContainer.scrollTop;
             messages.splice(index, 1); 
             throttledSaveData(); 

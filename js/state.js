@@ -24,6 +24,7 @@
         let isLoadingHistory = false;
         let isBatchFavoriteMode = false;
         let selectedMessages = [];
+        window._replySuspended = false;   // ← 新增
         let customReplies = [];
         let customPokes = [];
         let customStatuses = [];
