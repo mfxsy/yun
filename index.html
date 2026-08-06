@@ -383,11 +383,10 @@
     <script src="./js/quote-manager.js"></script>
     <script src="./js/frequency-manager.js"></script>
     <script src="./js/call-manager.js"></script>
-    
-
+    <script src="./js/backup-panel.js"></script>
 
     <!-- =============================================================
-         主程序（修复了功能设置持续重置的问题）
+         主程序（修复了功能设置持续重置的问题，移除了备份内联代码）
          ============================================================= -->
     <script>
         (function() {
@@ -457,28 +456,6 @@
             }
             window.getStorageKey = getStorageKey;
 
-            // ---------- 存储信息更新 ----------
-            async function updateStorageInfo() {
-                const usedEl = document.getElementById('usedStorage');
-                const totalEl = document.getElementById('totalStorage');
-                if (!usedEl || !totalEl) return;
-                try {
-                    if (navigator.storage && navigator.storage.estimate) {
-                        const estimate = await navigator.storage.estimate();
-                        const used = estimate.usage || 0;
-                        const quota = estimate.quota || 0;
-                        usedEl.textContent = (used / (1024 * 1024)).toFixed(2) + ' MB';
-                        totalEl.textContent = (quota / (1024 * 1024)).toFixed(2) + ' MB';
-                    } else {
-                        usedEl.textContent = '不支持';
-                        totalEl.textContent = '不支持';
-                    }
-                } catch (e) {
-                    usedEl.textContent = '无法获取';
-                    totalEl.textContent = '无法获取';
-                }
-            }
-
             // ---------- 通知设置 ----------
             async function loadNotificationSetting() {
                 try {
@@ -517,7 +494,7 @@
                 }
             }
 
-            // ---------- 时间戳设置（已修复禁止误写入） ----------
+            // ---------- 时间戳设置 ----------
             async function loadTimestampSetting() {
                 let keyValid = true;
                 try {
@@ -545,7 +522,7 @@
                 } catch (e) { console.warn('保存时间戳设置失败:', e); }
             }
 
-            // ---------- 已读不回（已修复禁止误写入） ----------
+            // ---------- 已读不回 ----------
             async function loadNoReplySetting() {
                 let keyValid = true;
                 try {
@@ -599,6 +576,7 @@
                     await localforage.setItem(key, data);
                 } catch (e) { console.warn('保存消息失败:', e); }
             }
+            window.saveMessages = saveMessages;
 
             // ---------- 渲染消息 ----------
             function renderMessages() {
@@ -695,6 +673,7 @@
                     chatArea.scrollTop = chatArea.scrollHeight;
                 });
             }
+            window.renderMessages = renderMessages;
 
             // ---------- 发送消息 ----------
             window.sendMessage = async function(text, image) {
@@ -887,374 +866,6 @@
             }
             window.toggleTheme = toggleTheme;
 
-            // ---------- 备份功能 ----------
-            async function exportFullBackup() {
-                try {
-                    const cardData = window.cardManager ? window.cardManager.exportData() : {};
-                    const emojiData = window.emojiManager ? window.emojiManager.exportData() : {};
-                    const avatarData = window.avatarManager ? window.avatarManager.exportData() : {};
-                    const fullData = {
-                        version: '1.0',
-                        exportDate: new Date().toISOString(),
-                        sessionId: SESSION_ID,
-                        messages: messages,
-                        partnerName: partnerName,
-                        myName: myName,
-                        isDark: isDark,
-                        lastMsgId: lastMsgId,
-                        cards: cardData,
-                        emojis: emojiData,
-                        avatars: avatarData
-                    };
-                    const blob = new Blob([JSON.stringify(fullData, null, 2)], { type: 'application/json' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `full-backup-${new Date().toISOString().slice(0,10)}.json`;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
-                    showToast('全量备份导出成功', 'success');
-                } catch (e) {
-                    showToast('导出失败: ' + e.message, 'error');
-                    console.error(e);
-                }
-            }
-
-            async function importFullBackup(file) {
-                try {
-                    const text = await file.text();
-                    const data = JSON.parse(text);
-                    if (!data.sessionId || !data.messages) {
-                        throw new Error('无效的备份文件');
-                    }
-                    if (!confirm('导入将覆盖当前所有数据，确定继续吗？')) return;
-
-                    messages = data.messages || [];
-                    partnerName = data.partnerName || '梦角';
-                    myName = data.myName || '我';
-                    isDark = data.isDark || false;
-                    lastMsgId = data.lastMsgId || 0;
-                    await saveMessages();
-
-                    if (data.cards && window.cardManager) {
-                        await window.cardManager.importData(data.cards, 'overwrite');
-                    }
-                    if (data.emojis && window.emojiManager) {
-                        await window.emojiManager.importData(data.emojis, 'overwrite');
-                    }
-                    if (data.avatars && window.avatarManager) {
-                        await window.avatarManager.importData(data.avatars, 'overwrite');
-                    }
-
-                    if (isDark) {
-                        document.documentElement.setAttribute('data-theme', 'dark');
-                        themeToggle.innerHTML = '<i class="fas fa-sun"></i>';
-                    } else {
-                        document.documentElement.removeAttribute('data-theme');
-                        themeToggle.innerHTML = '<i class="fas fa-moon"></i>';
-                    }
-
-                    contactName.textContent = partnerName;
-                    renderMessages();
-                    if (window.cardManager) window.cardManager.reload();
-                    if (window.emojiManager) window.emojiManager.reload();
-                    if (window.avatarManager) window.avatarManager.reload();
-                    showToast('全量导入成功', 'success');
-                } catch (e) {
-                    showToast('导入失败: ' + e.message, 'error');
-                    console.error(e);
-                }
-            }
-
-            // 导出单个模块
-            function exportSingleModule(moduleType) {
-                let data = {};
-                let fileName = '';
-                switch (moduleType) {
-                    case 'messages':
-                        data = { messages: messages, partnerName, myName, isDark, lastMsgId };
-                        fileName = 'chat-messages.json';
-                        break;
-                    case 'cards':
-                        data = window.cardManager ? window.cardManager.exportData() : {};
-                        fileName = 'cards.json';
-                        break;
-                    case 'emojis':
-                        data = window.emojiManager ? window.emojiManager.exportData() : {};
-                        fileName = 'emojis.json';
-                        break;
-                    case 'textEmojis':
-                        data = window.cardManager ? { textEmojis: window.cardManager.getTextEmojis() } : {};
-                        fileName = 'text-emojis.json';
-                        break;
-
-                        case 'avatar':
-                        // 获取原有的头像/背景数据
-                        var avatarData = window.avatarManager ? window.avatarManager.exportData() : {};
-                        // 将双方昵称合并到备份数据中
-                        data = Object.assign({}, avatarData, {
-                            partnerName: partnerName,
-                            myName: myName
-                        });
-                        fileName = 'avatar-nickname.json';
-                        break;
-
-                    default: return;
-                }
-                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = fileName;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-                showToast(`导出 ${moduleType} 成功`, 'success');
-            }
-
-            // ===== 单独导入功能 =====
-
-            async function importSingleModule(moduleType, data, mode) {
-                try {
-                    let result;
-                    switch (moduleType) {
-                        case 'messages':
-                            if (!data.messages) throw new Error('无效的聊天记录文件');
-                            if (mode === 'overwrite') {
-                                messages = data.messages;
-                                partnerName = data.partnerName || '梦角';
-                                myName = data.myName || '我';
-                                isDark = data.isDark || false;
-                                lastMsgId = data.lastMsgId || 0;
-                            } else {
-                                messages = messages.concat(data.messages || []);
-                                if (data.lastMsgId && data.lastMsgId > lastMsgId) lastMsgId = data.lastMsgId;
-                                if (data.partnerName) partnerName = data.partnerName;
-                                if (data.myName) myName = data.myName;
-                                if (data.isDark !== undefined) isDark = data.isDark;
-                            }
-                            await saveMessages();
-                            contactName.textContent = partnerName;
-                            renderMessages();
-                            showToast('聊天记录导入成功', 'success');
-                            break;
-
-                        case 'cards':
-                            if (!window.cardManager) return;
-                            try {
-                        const added = await window.cardManager.importFromJson(data, 'cards', mode);
-                            if (added > 0) {
-                            await window.cardManager.reload();
-                            showToast(`成功导入 ${added} 条字卡${mode === 'overwrite' ? '（覆盖）' : '（合并）'}`, 'success');
-                            } else {
-                            showToast('没有新字卡可导入（可能已存在）', 'warning');
-                        }
-                            } catch (err) {
-                            showToast('导入失败: ' + err.message, 'error');
-                              }
-                        break;
-
-                        case 'textEmojis':
-                            if (!window.cardManager) return;
-                            try {
-                        const added = await window.cardManager.importFromJson(data, 'emojis', mode);
-                            if (added > 0) {
-                            await window.cardManager.reload();
-                            showToast(`成功导入 ${added} 条 Emoji${mode === 'overwrite' ? '（覆盖）' : '（合并）'}`, 'success');
-                        } else {
-                            showToast('没有新 Emoji 可导入（可能已存在）', 'warning');
-                        }
-                        } catch (err) {
-                            showToast('导入失败: ' + err.message, 'error');
-                        }
-                        break;
-                        case 'textEmojis':
-                            if (!window.cardManager) return;
-                            try {
-                                const added = await window.cardManager.importFromJson(data, 'emojis');
-                                if (added > 0) {
-                                    await window.cardManager.reload();
-                                    showToast(`成功导入 ${added} 条 Emoji`, 'success');
-                                } else {
-                                    showToast('没有新 Emoji 可导入（可能已存在）', 'warning');
-                                }
-                            } catch (err) {
-                                showToast('导入失败: ' + err.message, 'error');
-                            }
-                            break;
-
-                        case 'emojis':
-                            if (!window.emojiManager) return;
-                            result = await window.emojiManager.importData(data, mode);
-                            if (result.success) {
-                                await window.emojiManager.reload();
-                                showToast('表情包导入成功', 'success');
-                            } else showToast(result.message, 'error');
-                            break;
-
-                            case 'avatar':
-                            if (!window.avatarManager) return;
-                            result = await window.avatarManager.importData(data, mode);
-                            if (result.success) {
-                                // 如果备份文件中有昵称，则恢复昵称
-                                if (data.partnerName) {
-                                    partnerName = data.partnerName;
-                                    document.getElementById('contactName').textContent = partnerName;
-                                }
-                                if (data.myName) {
-                                    myName = data.myName;
-                                }
-                                // 刷新头像、背景以及聊天显示
-                                await window.avatarManager.reload();
-                                renderMessages();
-                                await saveMessages();
-                                showToast('头像/背景/昵称 导入成功', 'success');
-                            } else showToast(result.message, 'error');
-                            break;
-
-                        default: showToast('未知模块', 'error');
-                    }
-                } catch (err) {
-                    showToast('导入失败: ' + err.message, 'error');
-                    console.error(err);
-                }
-            }
-
-            function showImportModeDialog(moduleType, data) {
-                const overlay = document.createElement('div');
-                overlay.style.cssText = `
-                    position:fixed; inset:0; z-index:9999;
-                    background:rgba(0,0,0,0.5); backdrop-filter:blur(4px);
-                    display:flex; align-items:center; justify-content:center;
-                `;
-                const dialog = document.createElement('div');
-                dialog.style.cssText = `
-                    background:var(--wechat-bg); border-radius:16px; padding:20px;
-                    width:90%; max-width:320px; box-shadow:0 8px 30px rgba(0,0,0,0.3);
-                `;
-                const title = document.createElement('h3');
-                title.textContent = '选择导入模式';
-                title.style.cssText = 'margin-bottom:12px; font-size:17px; text-align:center;';
-                dialog.appendChild(title);
-
-                const desc = document.createElement('p');
-                desc.textContent = '合并：追加到已有数据；覆盖：替换已有数据。';
-                desc.style.cssText = 'font-size:13px; color:var(--wechat-text-secondary); margin-bottom:16px; text-align:center;';
-                dialog.appendChild(desc);
-
-                const btnGroup = document.createElement('div');
-                btnGroup.style.cssText = 'display:flex; gap:12px;';
-
-                const mergeBtn = document.createElement('button');
-                mergeBtn.textContent = '合并';
-                mergeBtn.style.cssText = 'flex:1; padding:10px; border-radius:8px; border:none; background:var(--wechat-green); color:#fff; font-weight:600; cursor:pointer;';
-                mergeBtn.addEventListener('click', function() {
-                    overlay.remove();
-                    importSingleModule(moduleType, data, 'merge');
-                });
-
-                const overwriteBtn = document.createElement('button');
-                overwriteBtn.textContent = '覆盖';
-                overwriteBtn.style.cssText = 'flex:1; padding:10px; border-radius:8px; border:none; background:#fa5151; color:#fff; font-weight:600; cursor:pointer;';
-                overwriteBtn.addEventListener('click', function() {
-                    overlay.remove();
-                    importSingleModule(moduleType, data, 'overwrite');
-                });
-
-                const cancelBtn = document.createElement('button');
-                cancelBtn.textContent = '取消';
-                cancelBtn.style.cssText = 'flex:0 0 auto; padding:10px 16px; border-radius:8px; border:1px solid var(--wechat-border); background:none; cursor:pointer;';
-                cancelBtn.addEventListener('click', function() {
-                    overlay.remove();
-                });
-
-                btnGroup.appendChild(mergeBtn);
-                btnGroup.appendChild(overwriteBtn);
-                btnGroup.appendChild(cancelBtn);
-                dialog.appendChild(btnGroup);
-                overlay.appendChild(dialog);
-                document.body.appendChild(overlay);
-            }
-
-            function showModuleAction(moduleType) {
-                const overlay = document.createElement('div');
-                overlay.style.cssText = `
-                    position:fixed; inset:0; z-index:9999;
-                    background:rgba(0,0,0,0.5); backdrop-filter:blur(4px);
-                    display:flex; align-items:center; justify-content:center;
-                `;
-                const dialog = document.createElement('div');
-                dialog.style.cssText = `
-                    background:var(--wechat-bg); border-radius:16px; padding:20px;
-                    width:90%; max-width:320px; box-shadow:0 8px 30px rgba(0,0,0,0.3);
-                `;
-                const title = document.createElement('h3');
-                const moduleLabels = {
-                    messages: '聊天记录',
-                    cards: '字卡（含分组）',
-                    emojis: '表情包',
-                    textEmojis: 'Emoji',
-                    avatar: '头像&背景&昵称'
-                };
-                title.textContent = moduleLabels[moduleType] || moduleType;
-                title.style.cssText = 'margin-bottom:12px; font-size:17px; text-align:center;';
-                dialog.appendChild(title);
-
-                const btnGroup = document.createElement('div');
-                btnGroup.style.cssText = 'display:flex; gap:12px;';
-
-                const exportBtn = document.createElement('button');
-                exportBtn.textContent = '导出';
-                exportBtn.style.cssText = 'flex:1; padding:10px; border-radius:8px; border:none; background:var(--wechat-green); color:#fff; font-weight:600; cursor:pointer;';
-                exportBtn.addEventListener('click', function() {
-                    overlay.remove();
-                    exportSingleModule(moduleType);
-                });
-
-                const importBtn = document.createElement('button');
-                importBtn.textContent = '导入';
-                importBtn.style.cssText = 'flex:1; padding:10px; border-radius:8px; border:none; background:var(--wechat-border); color:var(--wechat-text-primary); font-weight:600; cursor:pointer;';
-                importBtn.addEventListener('click', function() {
-                    overlay.remove();
-                    const input = document.createElement('input');
-                    input.type = 'file';
-                    input.accept = '.json';
-                    input.onchange = function(e) {
-                        if (!e.target.files[0]) return;
-                        const file = e.target.files[0];
-                        const reader = new FileReader();
-                        reader.onload = function(ev) {
-                            try {
-                                const data = JSON.parse(ev.target.result);
-                                showImportModeDialog(moduleType, data);
-                            } catch (err) {
-                                showToast('文件格式错误: ' + err.message, 'error');
-                            }
-                        };
-                        reader.readAsText(file);
-                        input.remove();
-                    };
-                    input.click();
-                });
-
-                const cancelBtn = document.createElement('button');
-                cancelBtn.textContent = '取消';
-                cancelBtn.style.cssText = 'flex:0 0 auto; padding:10px 16px; border-radius:8px; border:1px solid var(--wechat-border); background:none; cursor:pointer;';
-                cancelBtn.addEventListener('click', function() {
-                    overlay.remove();
-                });
-
-                btnGroup.appendChild(exportBtn);
-                btnGroup.appendChild(importBtn);
-                btnGroup.appendChild(cancelBtn);
-                dialog.appendChild(btnGroup);
-                overlay.appendChild(dialog);
-                document.body.appendChild(overlay);
-            }
-
             // ---------- 昵称修改 ----------
             function openNicknamePanel() {
                 document.getElementById('myNameInput').value = myName;
@@ -1278,54 +889,36 @@
                 showToast('昵称已更新', 'success');
             }
 
-            // ---------- 危险操作 ----------
-            async function clearCurrentSession() {
-                if (!confirm('确定删除当前会话的所有消息吗？此操作不可撤销。')) return;
-                messages = [];
-                await saveMessages();
-                renderMessages();
-                showToast('会话消息已清除', 'success');
-            }
-
-            async function resetAllData() {
-                if (!confirm('确定重置所有数据吗？此操作将清除所有聊天记录、字卡、表情、头像、背景等，且不可恢复！\n请确保已导出备份。')) return;
-                try {
-                    await localforage.clear();
-                    location.reload();
-                } catch (e) {
-                    showToast('重置失败: ' + e.message, 'error');
-                }
-            }
-
             // ---------- 初始化 ----------
             async function init() {
                 // 1. 初始化会话（设置 SESSION_ID）
-    await window.sessionManager.initializeSession();
-    SESSION_ID = window.sessionManager.getCurrentSessionId();
-    sessionList = window.sessionManager.getSessionList();
+                await window.sessionManager.initializeSession();
+                SESSION_ID = window.sessionManager.getCurrentSessionId();
+                sessionList = window.sessionManager.getSessionList();
 
-    // 2. 挂载全局存储键生成器
-    window.getSessionId = function() { return SESSION_ID; };
-    window.getPartnerName = function() { return partnerName; };
-    window.getMyName = function() { return myName; };
-    window.getStorageKey = getStorageKey;   // ★ 必须在此处定义
+                // 2. 挂载全局存储键生成器
+                window.getSessionId = function() { return SESSION_ID; };
+                window.getPartnerName = function() { return partnerName; };
+                window.getMyName = function() { return myName; };
+                window.getStorageKey = getStorageKey;
 
-    // 3. 加载各模块设置（此时 SESSION_ID 已就绪）
-    if (window.frequencyManager) {
-        await window.frequencyManager.load();
-        /// ★ 加载完成后立即刷新UI
-        if (typeof renderFrequencyPanel === 'function') {
-        renderFrequencyPanel();
-        }
-    }
-    if (window.quoteManager && typeof window.quoteManager.loadSettings === 'function') {
-        await window.quoteManager.loadSettings();
-    }
+                // ★ 开放 setter 供备份面板等模块修改昵称
+                window.setPartnerName = function(name) { partnerName = name; };
+                window.setMyName = function(name) { myName = name; };
 
-    // 4. 其他设置加载
-    await loadTimestampSetting();
-    await loadNoReplySetting();
-    await loadNotificationSetting();
+                // 3. 加载各模块设置
+                if (window.frequencyManager) {
+                    await window.frequencyManager.load();
+                    if (typeof renderFrequencyPanel === 'function') renderFrequencyPanel();
+                }
+                if (window.quoteManager && typeof window.quoteManager.loadSettings === 'function') {
+                    await window.quoteManager.loadSettings();
+                }
+
+                // 4. 其他设置加载
+                await loadTimestampSetting();
+                await loadNoReplySetting();
+                await loadNotificationSetting();
 
                 const hasData = await loadMessages();
                 if (!hasData) {
@@ -1399,7 +992,6 @@
                                 break;
                             case 'backup':
                                 document.getElementById('backupPanel').classList.add('open');
-                                updateStorageInfo();
                                 break;
                             case 'cards':
                                 if (window.cardManager) window.cardManager.openPanel();
@@ -1450,11 +1042,6 @@
                         }
                     });
                 }
-
-                document.getElementById('refreshStorageBtn').addEventListener('click', updateStorageInfo);
-
-                document.getElementById('clearSessionBtn').addEventListener('click', clearCurrentSession);
-                document.getElementById('resetAllBtn').addEventListener('click', resetAllData);
 
                 const quoteToggle = document.getElementById('quoteToggle');
                 const timestampToggle = document.getElementById('timestampToggle');
@@ -1565,7 +1152,6 @@
                 document.addEventListener('sessionChanged', async function(e) {
                     SESSION_ID = e.detail.sessionId;
                     sessionList = window.sessionManager.getSessionList();
-                    // 重新挂载全局方法
                     window.getSessionId = function() { return SESSION_ID; };
                     
                     if (window.frequencyManager) {
@@ -1590,25 +1176,6 @@
                     if (window.emojiManager) window.emojiManager.reload();
                     if (window.avatarManager) window.avatarManager.reload();
                     showToast('已切换会话', 'success');
-                });
-
-                document.getElementById('exportFullBtn').addEventListener('click', exportFullBackup);
-                document.getElementById('importFullBtn').addEventListener('click', function() {
-                    const input = document.createElement('input');
-                    input.type = 'file';
-                    input.accept = '.json';
-                    input.onchange = function(e) {
-                        if (e.target.files[0]) importFullBackup(e.target.files[0]);
-                        input.remove();
-                    };
-                    input.click();
-                });
-
-                document.querySelectorAll('[data-module]').forEach(btn => {
-                    btn.addEventListener('click', function() {
-                        const moduleType = this.dataset.module;
-                        showModuleAction(moduleType);
-                    });
                 });
 
                 document.querySelectorAll('.panel-overlay .close-panel').forEach(btn => {
@@ -1646,163 +1213,148 @@
             }
 
             // ===== 频率面板渲染（修复版） =====
-function renderFrequencyPanel() {
-    if (!window.frequencyManager) {
-        console.warn('[频率] frequencyManager 未加载');
-        return;
-    }
-    // ★ 从管理器获取最新值，而非闭包中的旧变量
-    const settings = window.frequencyManager.getSettings();
-    
-    console.log('[频率] 渲染面板，当前设置:', settings);
+            function renderFrequencyPanel() {
+                if (!window.frequencyManager) {
+                    console.warn('[频率] frequencyManager 未加载');
+                    return;
+                }
+                const settings = window.frequencyManager.getSettings();
+                console.log('[频率] 渲染面板，当前设置:', settings);
 
-    // 回复速度 - 最短时间
-    const minSlider = document.getElementById('replyMinSlider');
-    const minDisplay = document.getElementById('replyMinDisplay');
-    if (minSlider) {
-        minSlider.value = settings.replyMin || 1;
-        if (minDisplay) minDisplay.textContent = settings.replyMin || 1;
-    }
+                const minSlider = document.getElementById('replyMinSlider');
+                const minDisplay = document.getElementById('replyMinDisplay');
+                if (minSlider) {
+                    minSlider.value = settings.replyMin || 1;
+                    if (minDisplay) minDisplay.textContent = settings.replyMin || 1;
+                }
 
-    // 回复速度 - 最长时间
-    const maxSlider = document.getElementById('replyMaxSlider');
-    const maxDisplay = document.getElementById('replyMaxDisplay');
-    if (maxSlider) {
-        maxSlider.value = settings.replyMax || 30;
-        if (maxDisplay) maxDisplay.textContent = settings.replyMax || 30;
-    }
+                const maxSlider = document.getElementById('replyMaxSlider');
+                const maxDisplay = document.getElementById('replyMaxDisplay');
+                if (maxSlider) {
+                    maxSlider.value = settings.replyMax || 30;
+                    if (maxDisplay) maxDisplay.textContent = settings.replyMax || 30;
+                }
 
-    // 主动发送开关
-    const activeToggle = document.getElementById('activeEnabledToggle');
-    if (activeToggle) {
-        activeToggle.checked = settings.activeEnabled || false;
-    }
+                const activeToggle = document.getElementById('activeEnabledToggle');
+                if (activeToggle) {
+                    activeToggle.checked = settings.activeEnabled || false;
+                }
 
-    // 主动发送间隔
-    const intervalSlider = document.getElementById('activeIntervalSlider');
-    const intervalDisplay = document.getElementById('activeIntervalDisplay');
-    if (intervalSlider) {
-        intervalSlider.value = settings.activeInterval || 5;
-        if (intervalDisplay) intervalDisplay.textContent = settings.activeInterval || 5;
-    }
+                const intervalSlider = document.getElementById('activeIntervalSlider');
+                const intervalDisplay = document.getElementById('activeIntervalDisplay');
+                if (intervalSlider) {
+                    intervalSlider.value = settings.activeInterval || 5;
+                    if (intervalDisplay) intervalDisplay.textContent = settings.activeInterval || 5;
+                }
 
-    // 合并消息 - 表情合并
-    const mergeEmoji = document.getElementById('mergeEmojiToggle');
-    if (mergeEmoji) {
-        mergeEmoji.checked = settings.mergeEmoji || false;
-    }
+                const mergeEmoji = document.getElementById('mergeEmojiToggle');
+                if (mergeEmoji) {
+                    mergeEmoji.checked = settings.mergeEmoji || false;
+                }
 
-    // 合并消息 - 字卡拼接
-    const mergeCards = document.getElementById('mergeCardsToggle');
-    if (mergeCards) {
-        mergeCards.checked = settings.mergeCards || false;
-    }
+                const mergeCards = document.getElementById('mergeCardsToggle');
+                if (mergeCards) {
+                    mergeCards.checked = settings.mergeCards || false;
+                }
 
-    // ★ 绑定事件（仅一次）
-    bindFrequencyEvents();
-}
-
-// ===== 频率事件绑定（修复版） =====
-let frequencyEventsBound = false;
-
-function bindFrequencyEvents() {
-    if (frequencyEventsBound) {
-        console.log('[频率] 事件已绑定，跳过');
-        return;
-    }
-    frequencyEventsBound = true;
-    console.log('[频率] 绑定事件监听');
-
-    const minSlider = document.getElementById('replyMinSlider');
-    const maxSlider = document.getElementById('replyMaxSlider');
-    const minDisplay = document.getElementById('replyMinDisplay');
-    const maxDisplay = document.getElementById('replyMaxDisplay');
-
-    // 最短时间滑块
-    if (minSlider) {
-        minSlider.addEventListener('input', function() {
-            const val = parseInt(this.value);
-            if (minDisplay) minDisplay.textContent = val;
-            const maxVal = parseInt(maxSlider?.value || 30);
-            if (val > maxVal && maxSlider) {
-                maxSlider.value = val;
-                if (maxDisplay) maxDisplay.textContent = val;
+                bindFrequencyEvents();
             }
-            if (window.frequencyManager) {
-                window.frequencyManager.updateSetting('replyMin', val);
-            }
-        });
-    }
 
-    // 最长时间滑块
-    if (maxSlider) {
-        maxSlider.addEventListener('input', function() {
-            const val = parseInt(this.value);
-            if (maxDisplay) maxDisplay.textContent = val;
-            const minVal = parseInt(minSlider?.value || 1);
-            if (val < minVal && minSlider) {
-                minSlider.value = val;
-                if (minDisplay) minDisplay.textContent = val;
-            }
-            if (window.frequencyManager) {
-                window.frequencyManager.updateSetting('replyMax', val);
-            }
-        });
-    }
+            // ===== 频率事件绑定（修复版） =====
+            let frequencyEventsBound = false;
 
-    // 主动发送开关
-    const activeToggle = document.getElementById('activeEnabledToggle');
-    if (activeToggle) {
-        activeToggle.addEventListener('change', function() {
-            if (window.frequencyManager) {
-                window.frequencyManager.updateSetting('activeEnabled', this.checked);
-                window.frequencyManager.restartActiveTimer(() => {
-                    if (typeof triggerReply === 'function') {
-                        triggerReply(true);
-                    }
-                });
-            }
-        });
-    }
+            function bindFrequencyEvents() {
+                if (frequencyEventsBound) {
+                    console.log('[频率] 事件已绑定，跳过');
+                    return;
+                }
+                frequencyEventsBound = true;
+                console.log('[频率] 绑定事件监听');
 
-    // 主动发送间隔
-    const intervalSlider = document.getElementById('activeIntervalSlider');
-    const intervalDisplay = document.getElementById('activeIntervalDisplay');
-    if (intervalSlider) {
-        intervalSlider.addEventListener('input', function() {
-            const val = parseInt(this.value);
-            if (intervalDisplay) intervalDisplay.textContent = val;
-            if (window.frequencyManager) {
-                window.frequencyManager.updateSetting('activeInterval', val);
-                window.frequencyManager.restartActiveTimer(() => {
-                    if (typeof triggerReply === 'function') {
-                        triggerReply(true);
-                    }
-                });
-            }
-        });
-    }
+                const minSlider = document.getElementById('replyMinSlider');
+                const maxSlider = document.getElementById('replyMaxSlider');
+                const minDisplay = document.getElementById('replyMinDisplay');
+                const maxDisplay = document.getElementById('replyMaxDisplay');
 
-    // 表情合并消息
-    const mergeEmoji = document.getElementById('mergeEmojiToggle');
-    if (mergeEmoji) {
-        mergeEmoji.addEventListener('change', function() {
-            if (window.frequencyManager) {
-                window.frequencyManager.updateSetting('mergeEmoji', this.checked);
-            }
-        });
-    }
+                if (minSlider) {
+                    minSlider.addEventListener('input', function() {
+                        const val = parseInt(this.value);
+                        if (minDisplay) minDisplay.textContent = val;
+                        const maxVal = parseInt(maxSlider?.value || 30);
+                        if (val > maxVal && maxSlider) {
+                            maxSlider.value = val;
+                            if (maxDisplay) maxDisplay.textContent = val;
+                        }
+                        if (window.frequencyManager) {
+                            window.frequencyManager.updateSetting('replyMin', val);
+                        }
+                    });
+                }
 
-    // 字卡拼接
-    const mergeCards = document.getElementById('mergeCardsToggle');
-    if (mergeCards) {
-        mergeCards.addEventListener('change', function() {
-            if (window.frequencyManager) {
-                window.frequencyManager.updateSetting('mergeCards', this.checked);
+                if (maxSlider) {
+                    maxSlider.addEventListener('input', function() {
+                        const val = parseInt(this.value);
+                        if (maxDisplay) maxDisplay.textContent = val;
+                        const minVal = parseInt(minSlider?.value || 1);
+                        if (val < minVal && minSlider) {
+                            minSlider.value = val;
+                            if (minDisplay) minDisplay.textContent = val;
+                        }
+                        if (window.frequencyManager) {
+                            window.frequencyManager.updateSetting('replyMax', val);
+                        }
+                    });
+                }
+
+                const activeToggle = document.getElementById('activeEnabledToggle');
+                if (activeToggle) {
+                    activeToggle.addEventListener('change', function() {
+                        if (window.frequencyManager) {
+                            window.frequencyManager.updateSetting('activeEnabled', this.checked);
+                            window.frequencyManager.restartActiveTimer(() => {
+                                if (typeof triggerReply === 'function') {
+                                    triggerReply(true);
+                                }
+                            });
+                        }
+                    });
+                }
+
+                const intervalSlider = document.getElementById('activeIntervalSlider');
+                const intervalDisplay = document.getElementById('activeIntervalDisplay');
+                if (intervalSlider) {
+                    intervalSlider.addEventListener('input', function() {
+                        const val = parseInt(this.value);
+                        if (intervalDisplay) intervalDisplay.textContent = val;
+                        if (window.frequencyManager) {
+                            window.frequencyManager.updateSetting('activeInterval', val);
+                            window.frequencyManager.restartActiveTimer(() => {
+                                if (typeof triggerReply === 'function') {
+                                    triggerReply(true);
+                                }
+                            });
+                        }
+                    });
+                }
+
+                const mergeEmoji = document.getElementById('mergeEmojiToggle');
+                if (mergeEmoji) {
+                    mergeEmoji.addEventListener('change', function() {
+                        if (window.frequencyManager) {
+                            window.frequencyManager.updateSetting('mergeEmoji', this.checked);
+                        }
+                    });
+                }
+
+                const mergeCards = document.getElementById('mergeCardsToggle');
+                if (mergeCards) {
+                    mergeCards.addEventListener('change', function() {
+                        if (window.frequencyManager) {
+                            window.frequencyManager.updateSetting('mergeCards', this.checked);
+                        }
+                    });
+                }
             }
-        });
-    }
-}
 
             document.addEventListener('frequencySettingsChanged', function() {
                 if (document.getElementById('frequencySettingsPanel').classList.contains('open')) {
@@ -1810,14 +1362,14 @@ function bindFrequencyEvents() {
                 }
             });
 
-                       // ★ 增加 500ms 缓冲，避开手机浏览器恢复冲突
+            // ★ 增加 300ms 延迟，模仿新版加载动画，避开手机浏览器的恢复冲突
             function delayedInit() {
                 if (document.readyState === 'loading') {
                     document.addEventListener('DOMContentLoaded', () => {
-                        setTimeout(init, 500);
+                        setTimeout(init, 300);
                     });
                 } else {
-                    setTimeout(init, 500);
+                    setTimeout(init, 300);
                 }
             }
             delayedInit();

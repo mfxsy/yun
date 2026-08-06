@@ -6,79 +6,23 @@
     let sessionList = [];
     let currentSessionId = null;
 
-    // ========== 增强的存储读写（增加 localStorage 双备份） ==========
     async function loadSessionList() {
         try {
-            // 1. 优先从 IndexedDB (localforage) 读取
             const data = await localforage.getItem(APP_PREFIX + 'sessionList');
             if (data && Array.isArray(data)) {
                 sessionList = data;
-                // 同步备份到 localStorage
-                try {
-                    localStorage.setItem(APP_PREFIX + 'sessionList_backup', JSON.stringify(sessionList));
-                } catch (e) {}
-                return;
+            } else {
+                sessionList = [];
             }
         } catch (e) {
-            // IndexedDB 读取失败，忽略
+            sessionList = [];
         }
-
-        // 2. 若 IndexedDB 无数据或失败，尝试从 localStorage 备份恢复
-        try {
-            const backup = localStorage.getItem(APP_PREFIX + 'sessionList_backup');
-            if (backup) {
-                const parsed = JSON.parse(backup);
-                if (Array.isArray(parsed) && parsed.length > 0) {
-                    sessionList = parsed;
-                    // 将恢复的数据写回 IndexedDB，重建连接
-                    await localforage.setItem(APP_PREFIX + 'sessionList', sessionList);
-                    return;
-                }
-            }
-        } catch (e) {}
-
-        // 3. 完全无数据
-        sessionList = [];
     }
 
     async function saveSessionList() {
-        try {
-            await localforage.setItem(APP_PREFIX + 'sessionList', sessionList);
-            // 同时备份到 localStorage
-            try {
-                localStorage.setItem(APP_PREFIX + 'sessionList_backup', JSON.stringify(sessionList));
-            } catch (e) {}
-        } catch (e) {
-            // 降级：仅保存到 localStorage
-            try {
-                localStorage.setItem(APP_PREFIX + 'sessionList_backup', JSON.stringify(sessionList));
-            } catch (e2) {}
-        }
+        await localforage.setItem(APP_PREFIX + 'sessionList', sessionList);
     }
 
-    async function loadLastSessionId() {
-        // 从 IndexedDB 读取
-        try {
-            const id = await localforage.getItem(APP_PREFIX + 'lastSessionId');
-            if (id) return id;
-        } catch (e) {}
-        // 从 localStorage 备份读取
-        try {
-            return localStorage.getItem(APP_PREFIX + 'lastSessionId_backup');
-        } catch (e) {}
-        return null;
-    }
-
-    async function saveLastSessionId(id) {
-        try {
-            await localforage.setItem(APP_PREFIX + 'lastSessionId', id);
-            localStorage.setItem(APP_PREFIX + 'lastSessionId_backup', id);
-        } catch (e) {
-            localStorage.setItem(APP_PREFIX + 'lastSessionId_backup', id);
-        }
-    }
-
-    // ========== 会话操作核心函数 ==========
     async function createNewSession(name) {
         const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
         const newSession = {
@@ -93,74 +37,70 @@
 
     const sessionManager = {
         /**
-         * 初始化会话（增强版）：
-         * 1. 从强韧的双备份存储中恢复列表和上次ID
-         * 2. 严格按优先级决定当前会话，绝不自动新建（除非列表为空）
+         * 初始化会话：
+         * 1. 若 URL Hash 存在且有效 → 使用该会话
+         * 2. 否则，尝试恢复 lastSessionId（跨刷新保留）
+         * 3. 否则，取会话列表中的第一个
+         * 4. 否则，创建全新会话
          */
         async initializeSession() {
             await loadSessionList();
 
-            // 1) URL Hash 优先
+            // 1) URL Hash（只读，不写入）
             const hash = window.location.hash.substring(1);
             if (hash && sessionList.some(s => s.id === hash)) {
                 currentSessionId = hash;
-                if (window.location.hash !== '#' + currentSessionId) {
-                    history.replaceState(null, '', '#' + currentSessionId);
-                }
-                await saveLastSessionId(currentSessionId);
+                // ★ 已删除 history.replaceState，避免触发浏览器历史冲突
+                await localforage.setItem(APP_PREFIX + 'lastSessionId', currentSessionId);
                 return currentSessionId;
             }
 
-            // 2) 恢复最后使用的会话 ID（带备份）
-            const lastId = await loadLastSessionId();
+            // 2) lastSessionId（刷新时恢复）
+            const lastId = await localforage.getItem(APP_PREFIX + 'lastSessionId');
             if (lastId && sessionList.some(s => s.id === lastId)) {
                 currentSessionId = lastId;
-                if (window.location.hash !== '#' + currentSessionId) {
-                    history.replaceState(null, '', '#' + currentSessionId);
-                }
-                await saveLastSessionId(currentSessionId);
+                // ★ 已删除 history.replaceState
                 return currentSessionId;
             }
 
-            // 3) 取列表第一个（存在且有数据的场景）
+            // 3) 取第一个会话
             if (sessionList.length > 0) {
                 currentSessionId = sessionList[0].id;
-                if (window.location.hash !== '#' + currentSessionId) {
-                    history.replaceState(null, '', '#' + currentSessionId);
-                }
-                await saveLastSessionId(currentSessionId);
+                // ★ 已删除 history.replaceState
+                await localforage.setItem(APP_PREFIX + 'lastSessionId', currentSessionId);
                 return currentSessionId;
             }
 
-            // 4) 完全无会话 → 新建（仅在新浏览器/新设备首次使用时触发）
+            // 4) 完全无会话 → 新建
             const newId = await createNewSession('我的会话');
             currentSessionId = newId;
-            if (window.location.hash) {
-                history.replaceState(null, '', window.location.pathname + window.location.search);
-            }
-            history.replaceState(null, '', '#' + currentSessionId);
-            await saveLastSessionId(currentSessionId);
+            // ★ 已删除 history.replaceState (和重置 hash 的操作)
+            await localforage.setItem(APP_PREFIX + 'lastSessionId', currentSessionId);
             return currentSessionId;
         },
 
+        // 切换会话
         async switchSession(sessionId) {
             if (sessionId === currentSessionId) return;
             currentSessionId = sessionId;
             window.location.hash = sessionId;
-            await saveLastSessionId(sessionId);
+            await localforage.setItem(APP_PREFIX + 'lastSessionId', sessionId);
             document.dispatchEvent(new CustomEvent('sessionChanged', { detail: { sessionId } }));
         },
 
+        // 新建会话（不切换）
         async createNewSession(name) {
             return await createNewSession(name);
         },
 
+        // 新建并切换
         async createAndSwitch(name) {
             const newId = await createNewSession(name);
             await this.switchSession(newId);
             return newId;
         },
 
+        // 删除会话
         async deleteSession(sessionId) {
             if (sessionList.length <= 1) {
                 throw new Error('至少保留一个会话');
@@ -181,6 +121,7 @@
             }
         },
 
+        // 重命名会话
         async renameSession(sessionId, newName) {
             const session = sessionList.find(s => s.id === sessionId);
             if (session) {
@@ -200,7 +141,6 @@
         },
 
         renderSessionList(containerId) {
-            // ... (此部分可保持原样，无需改动) ...
             const container = document.getElementById(containerId);
             if (!container) return;
             if (sessionList.length === 0) {
@@ -222,7 +162,52 @@
                 `;
             });
             container.innerHTML = html;
-            // ... (事件绑定部分可保持原样) ...
+
+            container.querySelectorAll('.switch-session-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const id = btn.dataset.id;
+                    sessionManager.switchSession(id);
+                    document.getElementById('sessionPanel').classList.remove('open');
+                    sessionManager.renderSessionList(containerId);
+                });
+            });
+
+            container.querySelectorAll('.rename-session-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const id = btn.dataset.id;
+                    const session = sessionList.find(s => s.id === id);
+                    if (!session) return;
+                    const newName = prompt('输入新名称：', session.name);
+                    if (newName !== null && newName.trim()) {
+                        sessionManager.renameSession(id, newName.trim()).then(() => {
+                            sessionManager.renderSessionList(containerId);
+                            document.dispatchEvent(new CustomEvent('sessionRenamed', { detail: { sessionId: id, newName: newName.trim() } }));
+                        });
+                    }
+                });
+            });
+
+            container.querySelectorAll('.del-session-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    const id = btn.dataset.id;
+                    if (sessionList.length <= 1) {
+                        alert('至少保留一个会话');
+                        return;
+                    }
+                    if (confirm('确定删除此会话及所有数据吗？不可恢复！')) {
+                        try {
+                            await sessionManager.deleteSession(id);
+                            sessionManager.renderSessionList(containerId);
+                            document.dispatchEvent(new CustomEvent('sessionChanged', { detail: { sessionId: sessionManager.getCurrentSessionId() } }));
+                        } catch (err) {
+                            alert(err.message);
+                        }
+                    }
+                });
+            });
         }
     };
 

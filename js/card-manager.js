@@ -158,25 +158,31 @@
             return added;
         },
 
-        importFromJson: async function(jsonData, tab, mode = 'merge') {
+                importFromJson: async function(jsonData, tab, mode = 'merge') {
             try {
                 const data = typeof jsonData === 'string' ? JSON.parse(jsonData) : jsonData;
                 let items = [];
                 let importedGroups = null;
                 if (tab === 'cards') {
-                    if (data.customReplies) items = data.customReplies;
+                    // ★【修复点 1】新增对导出字段 data.cards 的识别
+                    if (data.cards) items = data.cards;
+                    else if (data.customReplies) items = data.customReplies;
                     else if (data.replies) items = data.replies;
                     else if (Array.isArray(data)) items = data;
                     else throw new Error('未找到字卡数据');
+                    
                     if (data.customReplyGroups) {
                         importedGroups = data.customReplyGroups;
                     }
                 } else if (tab === 'emojis') {
-                    if (data.customEmojis) items = data.customEmojis;
+                    // ★【修复点 2】新增对导出字段 data.textEmojis 的识别
+                    if (data.textEmojis) items = data.textEmojis;
+                    else if (data.customEmojis) items = data.customEmojis;
                     else if (data.emojis) items = data.emojis;
                     else if (Array.isArray(data)) items = data;
                     else throw new Error('未找到Emoji数据');
                 } else throw new Error('未知选项卡');
+                
                 if (items.length === 0) return 0;
 
                 const target = tab === 'cards' ? cards : textEmojis;

@@ -1,4 +1,4 @@
-// js/frequency-manager.js
+// js/frequency-manager.js（完整扩展版）
 (function() {
     'use strict';
 
@@ -91,10 +91,158 @@
         return false;
     }
 
+    // ---------- UI渲染与事件绑定（保证只绑定一次） ----------
+    let uiEventsBound = false;
+
+    function renderUI() {
+        const settings = getSettings();
+        console.log('[频率] 渲染UI，当前设置:', settings);
+
+        // 回复速度 - 最短时间
+        const minSlider = document.getElementById('replyMinSlider');
+        const minDisplay = document.getElementById('replyMinDisplay');
+        if (minSlider) {
+            minSlider.value = settings.replyMin;
+            if (minDisplay) minDisplay.textContent = settings.replyMin;
+        }
+
+        // 回复速度 - 最长时间
+        const maxSlider = document.getElementById('replyMaxSlider');
+        const maxDisplay = document.getElementById('replyMaxDisplay');
+        if (maxSlider) {
+            maxSlider.value = settings.replyMax;
+            if (maxDisplay) maxDisplay.textContent = settings.replyMax;
+        }
+
+        // 主动发送开关
+        const activeToggle = document.getElementById('activeEnabledToggle');
+        if (activeToggle) {
+            activeToggle.checked = settings.activeEnabled;
+        }
+
+        // 主动发送间隔
+        const intervalSlider = document.getElementById('activeIntervalSlider');
+        const intervalDisplay = document.getElementById('activeIntervalDisplay');
+        if (intervalSlider) {
+            intervalSlider.value = settings.activeInterval;
+            if (intervalDisplay) intervalDisplay.textContent = settings.activeInterval;
+        }
+
+        // 合并消息 - 表情合并
+        const mergeEmoji = document.getElementById('mergeEmojiToggle');
+        if (mergeEmoji) {
+            mergeEmoji.checked = settings.mergeEmoji;
+        }
+
+        // 合并消息 - 字卡拼接
+        const mergeCards = document.getElementById('mergeCardsToggle');
+        if (mergeCards) {
+            mergeCards.checked = settings.mergeCards;
+        }
+    }
+
+    function bindUIEvents() {
+        if (uiEventsBound) {
+            console.log('[频率] UI事件已绑定，跳过');
+            return;
+        }
+        uiEventsBound = true;
+        console.log('[频率] 绑定UI事件');
+
+        const minSlider = document.getElementById('replyMinSlider');
+        const maxSlider = document.getElementById('replyMaxSlider');
+        const minDisplay = document.getElementById('replyMinDisplay');
+        const maxDisplay = document.getElementById('replyMaxDisplay');
+
+        // 最短时间滑块
+        if (minSlider) {
+            minSlider.addEventListener('input', function() {
+                const val = parseInt(this.value);
+                if (minDisplay) minDisplay.textContent = val;
+                const maxVal = parseInt(maxSlider?.value || 30);
+                if (val > maxVal && maxSlider) {
+                    maxSlider.value = val;
+                    if (maxDisplay) maxDisplay.textContent = val;
+                }
+                frequencyManager.updateSetting('replyMin', val);
+            });
+        }
+
+        // 最长时间滑块
+        if (maxSlider) {
+            maxSlider.addEventListener('input', function() {
+                const val = parseInt(this.value);
+                if (maxDisplay) maxDisplay.textContent = val;
+                const minVal = parseInt(minSlider?.value || 1);
+                if (val < minVal && minSlider) {
+                    minSlider.value = val;
+                    if (minDisplay) minDisplay.textContent = val;
+                }
+                frequencyManager.updateSetting('replyMax', val);
+            });
+        }
+
+        // 主动发送开关
+        const activeToggle = document.getElementById('activeEnabledToggle');
+        if (activeToggle) {
+            activeToggle.addEventListener('change', function() {
+                frequencyManager.updateSetting('activeEnabled', this.checked);
+                frequencyManager.restartActiveTimer(() => {
+                    if (typeof window.triggerReply === 'function') {
+                        window.triggerReply(true);
+                    }
+                });
+            });
+        }
+
+        // 主动发送间隔
+        const intervalSlider = document.getElementById('activeIntervalSlider');
+        const intervalDisplay = document.getElementById('activeIntervalDisplay');
+        if (intervalSlider) {
+            intervalSlider.addEventListener('input', function() {
+                const val = parseInt(this.value);
+                if (intervalDisplay) intervalDisplay.textContent = val;
+                frequencyManager.updateSetting('activeInterval', val);
+                frequencyManager.restartActiveTimer(() => {
+                    if (typeof window.triggerReply === 'function') {
+                        window.triggerReply(true);
+                    }
+                });
+            });
+        }
+
+        // 表情合并消息
+        const mergeEmoji = document.getElementById('mergeEmojiToggle');
+        if (mergeEmoji) {
+            mergeEmoji.addEventListener('change', function() {
+                frequencyManager.updateSetting('mergeEmoji', this.checked);
+            });
+        }
+
+        // 字卡拼接
+        const mergeCards = document.getElementById('mergeCardsToggle');
+        if (mergeCards) {
+            mergeCards.addEventListener('change', function() {
+                frequencyManager.updateSetting('mergeCards', this.checked);
+            });
+        }
+    }
+
+    function initUI() {
+        renderUI();
+        bindUIEvents();
+        // 监听设置变化，当面板打开时重新渲染
+        document.addEventListener('frequencySettingsChanged', function() {
+            const panel = document.getElementById('frequencySettingsPanel');
+            if (panel && panel.classList.contains('open')) {
+                renderUI();
+            }
+        });
+    }
+
+    // ---------- 核心管理对象 ----------
     const frequencyManager = {
-        getSettings: function() { 
-            return { ...settings }; 
-        },
+        getSettings: function() { return { ...settings }; },
 
         updateSetting: async function(key, value) {
             if (key in settings) {
@@ -103,8 +251,8 @@
                 if (key === 'activeEnabled' || key === 'activeInterval') {
                     this.restartActiveTimer();
                 }
-                document.dispatchEvent(new CustomEvent('frequencySettingsChanged', { 
-                    detail: { key, value } 
+                document.dispatchEvent(new CustomEvent('frequencySettingsChanged', {
+                    detail: { key, value }
                 }));
                 return true;
             }
@@ -122,8 +270,8 @@
             if (changed) {
                 await saveSettings();
                 this.restartActiveTimer();
-                document.dispatchEvent(new CustomEvent('frequencySettingsChanged', { 
-                    detail: { settings: { ...settings } } 
+                document.dispatchEvent(new CustomEvent('frequencySettingsChanged', {
+                    detail: { settings: { ...settings } }
                 }));
             }
             return changed;
@@ -133,8 +281,8 @@
             settings = { ...DEFAULTS };
             await saveSettings();
             this.restartActiveTimer();
-            document.dispatchEvent(new CustomEvent('frequencySettingsChanged', { 
-                detail: { settings: { ...settings } } 
+            document.dispatchEvent(new CustomEvent('frequencySettingsChanged', {
+                detail: { settings: { ...settings } }
             }));
         },
 
@@ -202,6 +350,11 @@
         save: saveSettings,
         getDefaults: function() { return { ...DEFAULTS }; },
 
+        // UI相关
+        renderUI: renderUI,
+        bindUIEvents: bindUIEvents,
+        initUI: initUI,
+
         // 调试工具
         inspect: async function() {
             try {
@@ -219,5 +372,5 @@
     };
 
     window.frequencyManager = frequencyManager;
-    console.log('✅ frequencyManager 已加载，等待主程序调用 .load()');
+    console.log('✅ frequencyManager 已加载，包含UI管理');
 })();
