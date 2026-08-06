@@ -36,7 +36,7 @@
     }
 
     const sessionManager = {
-        /**
+                /**
          * 初始化会话：
          * 1. 若 URL Hash 存在且有效 → 使用该会话
          * 2. 否则，尝试恢复 lastSessionId（跨刷新保留）
@@ -46,13 +46,11 @@
         async initializeSession() {
             await loadSessionList();
 
-            // 1) URL Hash
+            // 1) URL Hash（只读，不写入）
             const hash = window.location.hash.substring(1);
             if (hash && sessionList.some(s => s.id === hash)) {
                 currentSessionId = hash;
-                if (window.location.hash !== '#' + currentSessionId) {
-                    history.replaceState(null, '', '#' + currentSessionId);
-                }
+                // ★ 已删除 history.replaceState，避免触发浏览器历史冲突
                 await localforage.setItem(APP_PREFIX + 'lastSessionId', currentSessionId);
                 return currentSessionId;
             }
@@ -61,18 +59,14 @@
             const lastId = await localforage.getItem(APP_PREFIX + 'lastSessionId');
             if (lastId && sessionList.some(s => s.id === lastId)) {
                 currentSessionId = lastId;
-                if (window.location.hash !== '#' + currentSessionId) {
-                    history.replaceState(null, '', '#' + currentSessionId);
-                }
+                // ★ 已删除 history.replaceState
                 return currentSessionId;
             }
 
             // 3) 取第一个会话
             if (sessionList.length > 0) {
                 currentSessionId = sessionList[0].id;
-                if (window.location.hash !== '#' + currentSessionId) {
-                    history.replaceState(null, '', '#' + currentSessionId);
-                }
+                // ★ 已删除 history.replaceState
                 await localforage.setItem(APP_PREFIX + 'lastSessionId', currentSessionId);
                 return currentSessionId;
             }
@@ -80,10 +74,7 @@
             // 4) 完全无会话 → 新建
             const newId = await createNewSession('我的会话');
             currentSessionId = newId;
-            if (window.location.hash) {
-                history.replaceState(null, '', window.location.pathname + window.location.search);
-            }
-            history.replaceState(null, '', '#' + currentSessionId);
+            // ★ 已删除 history.replaceState (和重置 hash 的操作)
             await localforage.setItem(APP_PREFIX + 'lastSessionId', currentSessionId);
             return currentSessionId;
         },
