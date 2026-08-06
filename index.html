@@ -135,7 +135,7 @@
                         <button class="backup-btn primary" id="exportFullBtn">导出全部数据</button>
                         <button class="backup-btn primary" id="importFullBtn">导入全部数据</button>
                     </div>
-                    <div style="font-size:12px;color:var(--wechat-text-secondary);margin-top:4px;">包含聊天记录、字卡、表情、头像、背景、Emoji、分组等</div>
+                    <div style="font-size:12px;color:var(--wechat-text-secondary);margin-top:4px;">包含聊天记录、字卡、表情、emoji、头像&背景&昵称</div>
                 </div>
                 <div class="backup-section">
                     <div class="backup-section-title">单独备份</div>
@@ -144,7 +144,7 @@
                         <button class="backup-btn" data-module="cards">字卡（含分组）</button>
                         <button class="backup-btn" data-module="emojis">表情包</button>
                         <button class="backup-btn" data-module="textEmojis">Emoji</button>
-                        <button class="backup-btn" data-module="avatar">头像&背景</button>
+                        <button class="backup-btn" data-module="avatar">头像&背景&昵称</button>
                     </div>
                 </div>
                 <div class="backup-section">
@@ -383,6 +383,8 @@
     <script src="./js/quote-manager.js"></script>
     <script src="./js/frequency-manager.js"></script>
     <script src="./js/call-manager.js"></script>
+    
+
 
     <!-- =============================================================
          主程序（修复了功能设置持续重置的问题）
@@ -987,10 +989,18 @@
                         data = window.cardManager ? { textEmojis: window.cardManager.getTextEmojis() } : {};
                         fileName = 'text-emojis.json';
                         break;
-                    case 'avatar':
-                        data = window.avatarManager ? window.avatarManager.exportData() : {};
-                        fileName = 'avatar.json';
+
+                        case 'avatar':
+                        // 获取原有的头像/背景数据
+                        var avatarData = window.avatarManager ? window.avatarManager.exportData() : {};
+                        // 将双方昵称合并到备份数据中
+                        data = Object.assign({}, avatarData, {
+                            partnerName: partnerName,
+                            myName: myName
+                        });
+                        fileName = 'avatar-nickname.json';
                         break;
+
                     default: return;
                 }
                 const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -1085,12 +1095,23 @@
                             } else showToast(result.message, 'error');
                             break;
 
-                        case 'avatar':
+                            case 'avatar':
                             if (!window.avatarManager) return;
                             result = await window.avatarManager.importData(data, mode);
                             if (result.success) {
+                                // 如果备份文件中有昵称，则恢复昵称
+                                if (data.partnerName) {
+                                    partnerName = data.partnerName;
+                                    document.getElementById('contactName').textContent = partnerName;
+                                }
+                                if (data.myName) {
+                                    myName = data.myName;
+                                }
+                                // 刷新头像、背景以及聊天显示
                                 await window.avatarManager.reload();
-                                showToast('头像/背景导入成功', 'success');
+                                renderMessages();
+                                await saveMessages();
+                                showToast('头像/背景/昵称 导入成功', 'success');
                             } else showToast(result.message, 'error');
                             break;
 
@@ -1176,7 +1197,7 @@
                     cards: '字卡（含分组）',
                     emojis: '表情包',
                     textEmojis: 'Emoji',
-                    avatar: '头像&背景'
+                    avatar: '头像&背景&昵称'
                 };
                 title.textContent = moduleLabels[moduleType] || moduleType;
                 title.style.cssText = 'margin-bottom:12px; font-size:17px; text-align:center;';
@@ -1789,11 +1810,17 @@ function bindFrequencyEvents() {
                 }
             });
 
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', init);
-            } else {
-                init();
+                       // ★ 增加 500ms 缓冲，避开手机浏览器恢复冲突
+            function delayedInit() {
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', () => {
+                        setTimeout(init, 500);
+                    });
+                } else {
+                    setTimeout(init, 500);
+                }
             }
+            delayedInit();
         })();
     </script>
 </body>
