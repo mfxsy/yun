@@ -388,6 +388,7 @@
 
     <!-- =============================================================
          主程序（修复了功能设置持续重置的问题，移除了备份内联代码）
+         更新：修复文字消息被底部输入栏遮挡的问题（动态底部留白 + 延迟滚动）
          ============================================================= -->
     <script>
         (function() {
@@ -415,6 +416,7 @@
             const chatArea = document.getElementById('chatArea');
             const msgInput = document.getElementById('msgInput');
             const sendBtn = document.getElementById('sendBtn');
+            const inputBar = document.getElementById('inputBar');
             const contactName = document.getElementById('contactName');
             const contactStatus = document.getElementById('contactStatus');
             const themeToggle = document.getElementById('themeToggle');
@@ -673,9 +675,12 @@
                 });
 
                 chatArea.innerHTML = html;
-                requestAnimationFrame(() => {
+
+                // ✅【关键修复 1】改用 setTimeout 延迟滚动，确保高度计算完成
+                setTimeout(() => {
+                    // 强制回流，确保 scrollHeight 是最新值
                     chatArea.scrollTop = chatArea.scrollHeight;
-                });
+                }, 50);
             }
             window.renderMessages = renderMessages;
 
@@ -951,6 +956,15 @@
                     });
                 }
 
+                // ✅【关键修复 2】动态更新底部留白（避免输入框变高遮挡消息）
+                function updateChatPadding() {
+                    const inputBarHeight = inputBar.offsetHeight;
+                    // 额外多留出 20px 保险空间，避免刚好贴边
+                    chatArea.style.paddingBottom = (inputBarHeight + 20) + 'px';
+                }
+                // 初始化时执行一次
+                updateChatPadding();
+
                 // 挂载按钮事件
                 sendBtn.addEventListener('click', function() {
                     const text = msgInput.value;
@@ -972,7 +986,12 @@
                 msgInput.addEventListener('input', function() {
                     this.style.height = 'auto';
                     this.style.height = Math.min(this.scrollHeight, 100) + 'px';
+                    // ✅ 输入框变高时同步更新聊天区底部留白
+                    updateChatPadding();
                 });
+
+                // ✅ 监听窗口大小变化（例如移动端键盘弹出/收起）
+                window.addEventListener('resize', updateChatPadding);
 
                 themeToggle.addEventListener('click', toggleTheme);
 
