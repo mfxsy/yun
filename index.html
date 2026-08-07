@@ -386,7 +386,7 @@
     <script src="./js/backup-panel.js"></script>
 
     <!-- =============================================================
-         主程序（修复了功能设置持续重置的问题，移除了备份内联代码）
+         主程序（修复了功能设置持续重置的问题，移除了备份内联代码，新增键盘防遮挡逻辑）
          ============================================================= -->
     <script>
         (function() {
@@ -421,6 +421,16 @@
 
             // ---------- 工具 ----------
             function getRandomItem(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+            // ★【新增】强制滚动到底部函数（解决键盘和地址栏遮挡问题）
+            function scrollToBottom() {
+                if (!chatArea) return;
+                // 分三次执行覆盖移动端浏览器渲染延迟
+                const doScroll = () => { chatArea.scrollTop = chatArea.scrollHeight; };
+                requestAnimationFrame(doScroll);
+                setTimeout(doScroll, 150);
+                setTimeout(doScroll, 300);
+            }
 
             function formatTime(date) {
                 if (!(date instanceof Date)) date = new Date(date);
@@ -672,9 +682,9 @@
                 });
 
                 chatArea.innerHTML = html;
-                requestAnimationFrame(() => {
-                    chatArea.scrollTop = chatArea.scrollHeight;
-                });
+                
+                // ★【替换】删除旧的 requestAnimationFrame，使用统一滚动函数
+                scrollToBottom();
             }
             window.renderMessages = renderMessages;
 
@@ -707,6 +717,9 @@
                 window.messages.push(msg);
                 renderMessages();
                 await saveMessages();
+
+                // ★【新增】消息发送后立即跟随，防止键盘遮挡新消息
+                scrollToBottom();
 
                 setTimeout(async () => {
                     msg.read = true;
@@ -939,6 +952,14 @@
 
                 contactName.textContent = window.partnerName;
                 renderMessages();
+
+                // ★【新增】实时监听可视区域（键盘弹起/地址栏滑动）并强制刷新滚动位置
+                if (window.visualViewport) {
+                    window.visualViewport.addEventListener('resize', scrollToBottom);
+                }
+                // 监听输入框获取/失去焦点事件（兼容部分机型）
+                msgInput.addEventListener('focus', () => setTimeout(scrollToBottom, 350));
+                msgInput.addEventListener('blur', () => setTimeout(scrollToBottom, 200));
 
                 if (window.cardManager && typeof window.cardManager.reload === 'function') {
                     await window.cardManager.reload();
