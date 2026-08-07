@@ -13,7 +13,8 @@
     <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;500;600&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
     <link rel="stylesheet" href="css/styles.css" />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js">
+    </script>
 </head>
 <body>
 
@@ -34,17 +35,16 @@
         <div class="chat-area" id="chatArea"></div>
     </div>
 
-        <!-- 底部输入栏 -->
-        <div class="wechat-input-bar" id="inputBar">
-            <button class="btn-icon call-btn" id="callBtn" title="通话"><i class="fas fa-phone"></i></button>
+    <!-- 底部输入栏 -->
+    <div class="wechat-input-bar" id="inputBar">
+        <button class="btn-icon call-btn" id="callBtn" title="通话"><i class="fas fa-phone"></i></button>
 
-            <div class="input-wrap">
-                <textarea id="msgInput" rows="1" placeholder="输入消息…" maxlength="500"></textarea>
-                <button class="btn-send" id="sendBtn" title="发送"><i class="fas fa-arrow-up"></i></button>
-            </div>
-            <button class="btn-icon" id="emojiBtn" title="表情包"><i class="far fa-smile"></i></button>
-            <button class="btn-icon settings-btn" id="settingsBtn" title="更多功能"><i class="fas fa-plus"></i></button>
+        <div class="input-wrap">
+            <textarea id="msgInput" rows="1" placeholder="输入消息…" maxlength="500"></textarea>
+            <button class="btn-send" id="sendBtn" title="发送"><i class="fas fa-arrow-up"></i></button>
         </div>
+        <button class="btn-icon" id="emojiBtn" title="表情包"><i class="far fa-smile"></i></button>
+        <button class="btn-icon settings-btn" id="settingsBtn" title="更多功能"><i class="fas fa-plus"></i></button>
     </div>
 
     <!-- ===== 字卡面板 ===== -->
@@ -377,19 +377,30 @@
     <div class="toast" id="toast"></div>
 
     <!-- ===== 脚本加载 ===== -->
-    <script src="./js/session-manager.js"></script>
-    <script src="./js/card-manager.js"></script>
-    <script src="./js/emoji-manager.js"></script>
-    <script src="./js/avatar-manager.js"></script>
-    <script src="./js/quote-manager.js"></script>
-    <script src="./js/frequency-manager.js"></script>
-    <script src="./js/call-manager.js"></script>
-    <script src="./js/backup-panel.js"></script>
+    <script src="./js/session-manager.js">
+    </script>
+    <script src="./js/card-manager.js">
+    </script>
+    <script src="./js/emoji-manager.js">
+    </script>
+    <script src="./js/avatar-manager.js">
+    </script>
+    <script src="./js/quote-manager.js">
+    </script>
+    <script src="./js/frequency-manager.js">
+    </script>
+    <script src="./js/call-manager.js">
+    </script>
+    <script src="./js/backup-panel.js">
+    </script>
 
     <!-- =============================================================
-         主程序（修复了功能设置持续重置的问题，移除了备份内联代码）
-         更新：修复文字消息被底部输入栏遮挡的问题（动态底部留白 + 延迟滚动）
-         ============================================================= -->
+    主程序（增量更新版）
+    修复点：
+    1. 抛弃全局重绘，改用 DOM 增量追加，彻底消除刷新感
+    2. 键盘收起防抖滚动 + 顺滑滚动逻辑保持
+    3. 追加消息后自动滚动到底部，不被底部栏遮挡
+    ============================================================= -->
     <script>
         (function() {
             'use strict';
@@ -422,6 +433,9 @@
             const themeToggle = document.getElementById('themeToggle');
             const toast = document.getElementById('toast');
 
+            // ✅ 追踪最后一次渲染的日期键，用于增量追加时判断
+            let _lastDateKey = '';
+
             // ---------- 工具 ----------
             function getRandomItem(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
@@ -438,7 +452,7 @@
                 if (isNaN(date.getTime())) return '1970-01-01';
                 const d = date;
                 return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2,
-                '0');
+                    '0');
             }
 
             function showToast(text, type, duration) {
@@ -584,7 +598,7 @@
             }
             window.saveMessages = saveMessages;
 
-            // ---------- 渲染消息 ----------
+            // ---------- 渲染消息（全量构建，用于页面初始加载） ----------
             function renderMessages() {
                 const myAv = window.avatarManager ? window.avatarManager.getMyAvatar() : null;
                 const partnerAv = window.avatarManager ? window.avatarManager.getPartnerAvatar() : null;
@@ -596,8 +610,9 @@
                     <p style="font-size:15px;font-weight:500;">开始你们的对话</p>
                 </div>
                 `;
-                return;
-            }
+                    _lastDateKey = '';
+                    return;
+                }
 
                 let html = '';
                 let lastDateKey = '';
@@ -676,13 +691,120 @@
 
                 chatArea.innerHTML = html;
 
-                // ✅【关键修复 1】改用 setTimeout 延迟滚动，确保高度计算完成
+                // ✅ 记录最后一条消息的日期，供后续追加使用
+                if (window.messages.length > 0) {
+                    const lastMsg = window.messages[window.messages.length - 1];
+                    _lastDateKey = getDateKey(lastMsg.time);
+                } else {
+                    _lastDateKey = '';
+                }
+
+                // ✅ 延迟滚动，确保高度计算完成
                 setTimeout(() => {
-                    // 强制回流，确保 scrollHeight 是最新值
                     chatArea.scrollTop = chatArea.scrollHeight;
-                }, 50);
+                }, 30);
             }
             window.renderMessages = renderMessages;
+
+            // ✅ 【核心修复】增量追加单条消息到 DOM（绝不重绘顶部）+ 自动滚动到底部
+            function appendMessageDOM(msg) {
+                const myAv = window.avatarManager ? window.avatarManager.getMyAvatar() : null;
+                const partnerAv = window.avatarManager ? window.avatarManager.getPartnerAvatar() : null;
+
+                // 1. 检查是否需要追加日期
+                const dateKey = getDateKey(msg.time);
+                if (dateKey !== _lastDateKey) {
+                    const label = (() => {
+                        const now = new Date();
+                        const today = getDateKey(now);
+                        const yesterday = getDateKey(new Date(now.getTime() - 86400000));
+                        if (dateKey === today) return '今天';
+                        if (dateKey === yesterday) return '昨天';
+                        const d = msg.time;
+                        return d.getFullYear() + '年' + String(d.getMonth() + 1) + '月' + String(d.getDate()) + '日';
+                    })();
+                    const ts = document.createElement('div');
+                    ts.className = 'msg-timestamp';
+                    ts.textContent = label;
+                    chatArea.appendChild(ts);
+                    _lastDateKey = dateKey;
+                }
+
+                if (msg.type === 'system') {
+                    const sys = document.createElement('div');
+                    sys.className = 'msg-system';
+                    sys.textContent = msg.text;
+                    chatArea.appendChild(sys);
+
+                    // ✅ 系统消息也要滚动到底部
+                    setTimeout(() => {
+                        chatArea.scrollTop = chatArea.scrollHeight;
+                    }, 30);
+                    return;
+                }
+
+                // 2. 构建气泡 DOM
+                const isSent = msg.sender === 'me';
+                const avatarSrc = isSent ? myAv : partnerAv;
+                const avatarHtml = avatarSrc ? `<img src="${avatarSrc}" alt="" />` : `<i class="fas fa-user"></i>`;
+
+                let replyHtml = '';
+                if (msg.replyTo) {
+                    let senderName = (msg.replyToSender === 'me') ? window.myName : window.partnerName;
+                    const replyContent = msg.replyToText || '';
+                    replyHtml = `<div class="quote-preview"><span>${senderName}：${replyContent.substring(0, 30)}${replyContent.length > 30 ? '…' : ''}</span></div>`;
+                }
+
+                const isImgOnly = msg.image && !msg.text;
+                let bubbleContent = '';
+                if (msg.text) bubbleContent += msg.text.replace(/\n/g, '<br />');
+                if (msg.image) {
+                    const imgHtml =
+                        `<img src="${msg.image}" alt="图片" onclick="window._viewImage && window._viewImage('${msg.image.replace(/'/g, "\\'")}')" loading="lazy" />`;
+                    bubbleContent += bubbleContent ? ('<br />' + imgHtml) : imgHtml;
+                }
+                const finalBubbleContent = replyHtml + (bubbleContent ? `<div>${bubbleContent}</div>` : '');
+                const bubbleClass = (isSent ? 'sent' : 'recv') + (isImgOnly ? ' img-only' : '');
+                const timeStr = formatTime(msg.time);
+                const timeHtml = showTimestamp ? `<span>${timeStr}</span>` : '';
+
+                const row = document.createElement('div');
+                row.className = `msg-row ${isSent ? 'sent' : 'recv'}`;
+                row.dataset.msgId = msg.id;
+                row.innerHTML = `
+                    <div class="msg-avatar">${avatarHtml}</div>
+                    <div class="msg-bubble-wrap">
+                        <div class="msg-bubble ${bubbleClass}">${finalBubbleContent}</div>
+                        <div class="msg-meta">
+                            ${timeHtml}
+                            ${isSent ? `<span class="read-status ${msg.read ? 'read' : ''}">${msg.read ? '<i class="fas fa-check-circle"></i>' : '<i class="fas fa-check"></i>'}</span>` : ''}
+                        </div>
+                    </div>
+                `;
+                chatArea.appendChild(row);
+
+                // ✅ 关键修复：每次追加消息后都滚动到底部，确保最新消息可见且不被底部栏遮挡
+                // 使用 requestAnimationFrame 保证 DOM 已更新，再用 setTimeout 确保图片加载后位置正确
+                requestAnimationFrame(() => {
+                    chatArea.scrollTop = chatArea.scrollHeight;
+                });
+                // 双重保障：图片加载可能延迟，再补一次
+                setTimeout(() => {
+                    chatArea.scrollTop = chatArea.scrollHeight;
+                }, 100);
+            }
+
+            // ✅ 只更新单条消息的已读回执
+            function updateReadReceipt(msgId) {
+                const row = chatArea.querySelector(`.msg-row[data-msg-id="${msgId}"]`);
+                if (row) {
+                    const statusEl = row.querySelector('.msg-meta .read-status');
+                    if (statusEl) {
+                        statusEl.className = 'read-status read';
+                        statusEl.innerHTML = '<i class="fas fa-check-circle"></i>';
+                    }
+                }
+            }
 
             // ---------- 发送消息 ----------
             window.sendMessage = async function(text, image) {
@@ -711,12 +833,20 @@
                 }
 
                 window.messages.push(msg);
-                renderMessages();
+
+                // ✅ 仅第一条消息调用全量刷新以移除“空状态”，后续全增量追加
+                if (window.messages.length === 1) {
+                    renderMessages();
+                } else {
+                    appendMessageDOM(msg);
+                }
+
                 await saveMessages();
 
+                // 已读回执只更新 DOM，不刷新列表
                 setTimeout(async () => {
                     msg.read = true;
-                    renderMessages();
+                    updateReadReceipt(msg.id);
                     await saveMessages();
                 }, 800 + Math.random() * 1200);
 
@@ -724,7 +854,7 @@
                 return true;
             };
 
-            // ---------- 添加外部消息 ----------
+            // ---------- 添加外部消息（增量追加） ----------
             window.addMessage = function(text, sender, type) {
                 sender = sender || 'me';
                 type = type || 'normal';
@@ -738,14 +868,19 @@
                     type: type
                 };
                 window.messages.push(msg);
-                renderMessages();
+
+                if (window.messages.length === 1) {
+                    renderMessages();
+                } else {
+                    appendMessageDOM(msg);
+                }
                 saveMessages();
                 if (sender === 'partner') {
                     sendNotification();
                 }
             };
 
-            // ---------- 回复逻辑 ----------
+            // ---------- 回复逻辑（增量追加） ----------
             function triggerReply(fromActive) {
                 if (isTyping) return;
 
@@ -775,7 +910,8 @@
                             type: 'normal',
                         };
                         window.messages.push(hint);
-                        renderMessages();
+                        if (window.messages.length === 1) renderMessages();
+                        else appendMessageDOM(hint);
                         await saveMessages();
                         sendNotification();
                     }, 600);
@@ -841,7 +977,8 @@
                     }
 
                     window.messages.push(reply);
-                    renderMessages();
+                    if (window.messages.length === 1) renderMessages();
+                    else appendMessageDOM(reply);
                     await saveMessages();
                     sendNotification();
 
@@ -858,7 +995,8 @@
                                 type: 'normal',
                             };
                             window.messages.push(extraMsg);
-                            renderMessages();
+                            if (window.messages.length === 1) renderMessages();
+                            else appendMessageDOM(extraMsg);
                             await saveMessages();
                             sendNotification();
                         }
@@ -956,19 +1094,38 @@
                     });
                 }
 
-                // ✅【关键修复 2】动态更新底部留白（避免输入框变高遮挡消息）
+                // ✅ 动态更新底部留白 + 顺滑防抖滚动
                 function updateChatPadding() {
                     const inputBarHeight = inputBar.offsetHeight;
-                    // 额外多留出 20px 保险空间，避免刚好贴边
                     chatArea.style.paddingBottom = (inputBarHeight + 20) + 'px';
-                    
-                    // ✅ 在调整内边距后，延迟 150ms 触发滚动到底部，完美适配 iOS 键盘收起动画
-                    setTimeout(() => {
-                        chatArea.scrollTop = chatArea.scrollHeight;
-                    }, 150);
                 }
-                // 初始化时执行一次
                 updateChatPadding();
+
+                let resizeTimer = null;
+                let prevInnerHeight = window.innerHeight;
+                window.addEventListener('resize', function() {
+                    clearTimeout(resizeTimer);
+                    if (window.innerHeight > prevInnerHeight) {
+                        resizeTimer = setTimeout(() => {
+                            updateChatPadding();
+                            chatArea.scrollTo({ top: chatArea.scrollHeight, behavior: 'smooth' });
+                        }, 150);
+                    }
+                    prevInnerHeight = window.innerHeight;
+                });
+
+                if (window.visualViewport) {
+                    let viewportTimer = null;
+                    window.visualViewport.addEventListener('resize', function() {
+                        clearTimeout(viewportTimer);
+                        viewportTimer = setTimeout(() => {
+                            if (window.visualViewport.height >= (window.innerHeight - 100)) {
+                                updateChatPadding();
+                                chatArea.scrollTo({ top: chatArea.scrollHeight, behavior: 'smooth' });
+                            }
+                        }, 150);
+                    });
+                }
 
                 // 挂载按钮事件
                 sendBtn.addEventListener('click', function() {
@@ -991,20 +1148,7 @@
                 msgInput.addEventListener('input', function() {
                     this.style.height = 'auto';
                     this.style.height = Math.min(this.scrollHeight, 100) + 'px';
-                    // ✅ 输入框变高时同步更新聊天区底部留白
                     updateChatPadding();
-                });
-
-                // ✅ 监听窗口大小变化（例如移动端键盘弹出/收起）
-                if (window.visualViewport) {
-                    // 使用 iOS 标准 API，精确监听键盘/浏览器底部工具栏变化
-                    window.visualViewport.addEventListener('resize', updateChatPadding);
-                } else {
-                    window.addEventListener('resize', updateChatPadding);
-                }
-                // 监听横竖屏切换
-                window.addEventListener('orientationchange', function() {
-                    setTimeout(updateChatPadding, 300);
                 });
 
                 themeToggle.addEventListener('click', toggleTheme);
@@ -1031,7 +1175,8 @@
                             case 'message':
                                 document.getElementById('messageSettingsPanel').classList.add('open');
                                 break;
-                            default: break;
+                            default:
+                                break;
                         }
                     });
                 });
@@ -1185,7 +1330,7 @@
                     window.SESSION_ID = e.detail.sessionId;
                     sessionList = window.sessionManager.getSessionList();
                     window.getSessionId = function() { return window.SESSION_ID; };
-                    
+
                     if (window.frequencyManager) {
                         await window.frequencyManager.load();
                         window.frequencyManager.restartActiveTimer(() => {
@@ -1242,7 +1387,7 @@
 
                 msgInput.focus();
                 console.log('✅ 主程序启动完成,会话ID:', window.SESSION_ID);
-                
+
             }
 
             // ===== 频率面板渲染（修复版） =====
