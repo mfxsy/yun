@@ -961,6 +961,11 @@
                     const inputBarHeight = inputBar.offsetHeight;
                     // 额外多留出 20px 保险空间，避免刚好贴边
                     chatArea.style.paddingBottom = (inputBarHeight + 20) + 'px';
+                    
+                    // ✅ 在调整内边距后，延迟 150ms 触发滚动到底部，完美适配 iOS 键盘收起动画
+                    setTimeout(() => {
+                        chatArea.scrollTop = chatArea.scrollHeight;
+                    }, 150);
                 }
                 // 初始化时执行一次
                 updateChatPadding();
@@ -991,7 +996,16 @@
                 });
 
                 // ✅ 监听窗口大小变化（例如移动端键盘弹出/收起）
-                window.addEventListener('resize', updateChatPadding);
+                if (window.visualViewport) {
+                    // 使用 iOS 标准 API，精确监听键盘/浏览器底部工具栏变化
+                    window.visualViewport.addEventListener('resize', updateChatPadding);
+                } else {
+                    window.addEventListener('resize', updateChatPadding);
+                }
+                // 监听横竖屏切换
+                window.addEventListener('orientationchange', function() {
+                    setTimeout(updateChatPadding, 300);
+                });
 
                 themeToggle.addEventListener('click', toggleTheme);
 
