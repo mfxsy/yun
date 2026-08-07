@@ -1,4 +1,4 @@
-// card-manager.js（已修复：分组切换与搜索限制）
+// card-manager.js（修复：切换至已分组未选标签时强制触发搜索限制提示）
 (function() {
     'use strict';
 
@@ -503,6 +503,10 @@
                     // ★ 已点击已分组，但未选择任何标签 ★
                     isContentAllowed = false;
                     contentHtml = `<div class="card-empty" style="padding:40px 0;"><i class="fas fa-hand-pointer"></i><p>请选择分组</p></div>`;
+                    // 【核心修复点】在已分组且未选标签状态下，只要搜索框里存在文字（哪怕是之前从“未分组”带过来的），强制触发限制弹窗
+                    if (window.cardManager.searchQuery && window.cardManager.searchQuery.trim().length > 0) {
+                        showToast('请选择分组标签后再搜索', 'warning');
+                    }
                 }
             } else {
                 // ★ 未分组模式 ★
