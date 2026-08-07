@@ -737,9 +737,12 @@
                     chatArea.appendChild(sys);
 
                     // ✅ 系统消息也要滚动到底部
+                    requestAnimationFrame(() => {
+                        chatArea.scrollTop = chatArea.scrollHeight;
+                    });
                     setTimeout(() => {
                         chatArea.scrollTop = chatArea.scrollHeight;
-                    }, 30);
+                    }, 150);
                     return;
                 }
 
@@ -783,15 +786,15 @@
                 `;
                 chatArea.appendChild(row);
 
-                // ✅ 关键修复：每次追加消息后都滚动到底部，确保最新消息可见且不被底部栏遮挡
-                // 使用 requestAnimationFrame 保证 DOM 已更新，再用 setTimeout 确保图片加载后位置正确
+                // ✅ 关键修复：双重滚动机制，确保键盘收起或图片加载后位置正确
+                // 1. 下一帧立即滚动（DOM 刚更新）
                 requestAnimationFrame(() => {
                     chatArea.scrollTop = chatArea.scrollHeight;
                 });
-                // 双重保障：图片加载可能延迟，再补一次
+                // 2. 延迟 150ms 再次滚动（给图片加载和浏览器布局重排留出时间）
                 setTimeout(() => {
                     chatArea.scrollTop = chatArea.scrollHeight;
-                }, 100);
+                }, 150);
             }
 
             // ✅ 只更新单条消息的已读回执
@@ -1114,16 +1117,29 @@
                     prevInnerHeight = window.innerHeight;
                 });
 
+                // ✅ 【关键修复】移动端键盘收起时，增加深度防抖和延时滚动
                 if (window.visualViewport) {
                     let viewportTimer = null;
+                    let prevViewportHeight = window.visualViewport.height;
                     window.visualViewport.addEventListener('resize', function() {
                         clearTimeout(viewportTimer);
-                        viewportTimer = setTimeout(() => {
-                            if (window.visualViewport.height >= (window.innerHeight - 100)) {
-                                updateChatPadding();
+                        const currentHeight = window.visualViewport.height;
+                        
+                        // 当视口高度变大（说明键盘正在收起）时，触发延迟滚动
+                        if (currentHeight > prevViewportHeight) {
+                            viewportTimer = setTimeout(() => {
+                                // 1. 先更新底部留白
+                                updateChatPadding(); 
+                                // 2. 平滑滚动到底部
                                 chatArea.scrollTo({ top: chatArea.scrollHeight, behavior: 'smooth' });
-                            }
-                        }, 150);
+                                
+                                // 3. 双重保障：某些浏览器滚动动画完成后位置可能不准，再强行置底一次
+                                setTimeout(() => {
+                                    chatArea.scrollTop = chatArea.scrollHeight;
+                                }, 250);
+                            }, 300); // 延迟 300ms，等待输入栏动画彻底结束
+                        }
+                        prevViewportHeight = currentHeight;
                     });
                 }
 
