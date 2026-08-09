@@ -500,8 +500,25 @@
             if (currentState === STATE.CALLING) {
                 sendChatMessage('已取消ᯅ', 'me');
             } else if (currentState === STATE.INCOMING) {
-                // ★ 拒接来电：发送者为系统，但不能使用系统类型；为了保持用户一致，使用接收方发送
-                sendChatMessage('对方暂时无法接听ᯅ ', 'system');
+                // ★ 拒接来电：由拨打方（对方）发出消息，记录准确的来电开始时间
+                const callStart = window._callStartTime || new Date();
+                const msg = {
+                    id: ++window.lastMsgId,
+                    sender: 'partner', // 拨打方
+                    text: '对方暂时无法接听ᯅ ',
+                    image: null,
+                    time: new Date(callStart),
+                    read: true,
+                    type: 'normal'
+                };
+                window.messages.push(msg);
+                if (typeof window.appendMessageDOM === 'function') {
+                    window.appendMessageDOM(msg);
+                } else {
+                    window.renderMessages();
+                }
+                if (typeof window.saveMessages === 'function') window.saveMessages();
+                localforage.removeItem(MISSED_CALL_KEY);
             }
         }
         endCall();
@@ -570,21 +587,40 @@
         if (currentState !== STATE.IDLE) return;
         
         const startTime = Date.now();
+        window._callStartTime = startTime; // 保存来电开始时间供实时拒接使用
+        initiator = 'partner';
+        
+        // ★ 存储时带上 initiator（拨打方），防止页面刷新后无法还原谁发起的
         localforage.setItem(MISSED_CALL_KEY, {
             startTime: startTime,
-            timeoutAt: startTime + 20000 
+            timeoutAt: startTime + 20000,
+            initiator: initiator 
         });
 
         currentState = STATE.INCOMING;
-        initiator = 'partner';
         callStartTime = null;
         showOverlay();
         renderCallScreen('incoming', { name: getPartnerName() });
 
         setTimeout(() => {
             if (currentState === STATE.INCOMING) {
-                // ★ 未接来电：还是系统消息（用户没有要求删除它，保留它）
-                sendChatMessage('对方暂时无法接听ᯅ ', 'system');
+                // ★ 未接来电：由拨打方（partner）发出气泡消息，时间戳为真实开始时间
+                const msg = {
+                    id: ++window.lastMsgId,
+                    sender: initiator,
+                    text: '对方暂时无法接听ᯅ ',
+                    image: null,
+                    time: new Date(startTime), 
+                    read: true,
+                    type: 'normal'
+                };
+                window.messages.push(msg);
+                if (typeof window.appendMessageDOM === 'function') {
+                    window.appendMessageDOM(msg);
+                } else {
+                    window.renderMessages();
+                }
+                if (typeof window.saveMessages === 'function') window.saveMessages();
                 localforage.removeItem(MISSED_CALL_KEY);
                 endCall();
             }
@@ -597,19 +633,21 @@
 
         const now = Date.now();
 
-        if (now >= missed.timeoutAt) {
-            window.lastMsgId = (window.lastMsgId || 0) + 1;
+        // 适配旧版存储（未存 initiator 时默认是对方拨打）
+        const initiator = missed.initiator || 'partner';
+
+        const generateMissedMessage = async (timestamp) => {
+            // ★ 生成正常气泡消息 (type: 'normal')，发送方为拨打方
             const msg = {
-                id: window.lastMsgId,
-                sender: 'system',
-                text: '未接来电 ᯅ',
+                id: ++window.lastMsgId,
+                sender: initiator,
+                text: '对方暂时无法接听ᯅ',
                 image: null,
-                time: new Date(missed.startTime),
+                time: new Date(timestamp),
                 read: true,
-                type: 'system' // 未接来电作为系统消息（药丸）
+                type: 'normal' 
             };
             window.messages.push(msg);
-            
             if (typeof window.appendMessageDOM === 'function') {
                 window.appendMessageDOM(msg);
             } else {
@@ -617,29 +655,16 @@
             }
             if (typeof window.saveMessages === 'function') window.saveMessages();
             await localforage.removeItem(MISSED_CALL_KEY);
+        };
+
+        if (now >= missed.timeoutAt) {
+            await generateMissedMessage(missed.startTime);
         } else {
             const remaining = missed.timeoutAt - now;
             setTimeout(async () => {
                 const stillMissed = await localforage.getItem(MISSED_CALL_KEY);
                 if (stillMissed) {
-                    window.lastMsgId = (window.lastMsgId || 0) + 1;
-                    const msg = {
-                        id: window.lastMsgId,
-                        sender: 'system',
-                        text: '未接来电 ᯅ',
-                        image: null,
-                        time: new Date(stillMissed.startTime),
-                        read: true,
-                        type: 'system'
-                    };
-                    window.messages.push(msg);
-                    if (typeof window.appendMessageDOM === 'function') {
-                        window.appendMessageDOM(msg);
-                    } else {
-                        window.renderMessages();
-                    }
-                    if (typeof window.saveMessages === 'function') window.saveMessages();
-                    await localforage.removeItem(MISSED_CALL_KEY);
+                    await generateMissedMessage(stillMissed.startTime);
                 }
             }, remaining);
         }
