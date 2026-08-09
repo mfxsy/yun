@@ -657,7 +657,7 @@
             const msg = {
                 id: ++window.lastMsgId,
                 sender: interruptInitiator || 'me', 
-                text: '通话被打断 ᯅ', // 如需修改文本，可在此修改
+                text: '通话已中断 ᯅ', // 如需修改文本，可在此修改
                 image: null,
                 time: new Date(timestamp), 
                 read: true,
