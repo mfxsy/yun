@@ -959,3 +959,8 @@ body.with-background .empty-state {
     height: 80vh;
     max-height: 80vh;
 }
+
+/* ===== 表情包面板 - 固定最大高度 ===== */
+#emojiPanel .panel-sheet {
+    max-height: 60vh !important;  /* 优先覆盖全局的 max-height: 82vh */
+}

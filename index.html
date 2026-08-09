@@ -1146,6 +1146,12 @@ function markAllMyMessagesAsRead() {
                 contactName.textContent = window.partnerName;
                 renderMessages();
 
+                 // ★★★ 在这里插入以下代码 ★★★
+        if (window.callManager && typeof window.callManager.checkCallInterruption === 'function') {
+            await window.callManager.checkCallInterruption();
+        }
+        // ★★★ 插入结束 ★★★
+
                 if (window.cardManager && typeof window.cardManager.reload === 'function') {
                     await window.cardManager.reload();
                 }
