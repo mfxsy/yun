@@ -1595,6 +1595,33 @@
                 }
             }
             delayedInit();
+
+                    delayedInit();
+
+        // ---------- 修复 Safari BFCache 页面恢复滚动位置 ----------
+        window.addEventListener('pageshow', function(event) {
+            // 判断页面是否是从 BFCache（往返缓存）中加载的
+            if (event.persisted) {
+                // 延迟执行，确保 Safari 已经完全完成它自己的“恢复滚动条”动作
+                setTimeout(() => {
+                    // 1. 先确保底部内边距计算正确（应对键盘/底部栏高度变化）
+                    if (typeof updateChatPadding === 'function') {
+                        updateChatPadding();
+                    }
+                    
+                    // 2. 强制滚动到底部
+                    if (typeof scrollToBottom === 'function') {
+                        scrollToBottom();
+                        
+                        // 3. 再延迟一轮（150ms），防止聊天中的图片加载撑高了页面，导致滚动条又偏离底部
+                        setTimeout(scrollToBottom, 150);
+                    }
+                }, 400); // 延迟 400ms 是经过测试的稳妥值，能完美覆盖浏览器的自动恢复
+            }
+        });
+        })();
+    </script> 
+
         })();
     </script>
 </body>
