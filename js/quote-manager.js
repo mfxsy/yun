@@ -155,9 +155,9 @@
         if (!quoteBar) {
             quoteBar = document.createElement('div');
             quoteBar.id = 'quoteBar';
-            quoteBar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:6px 12px;background:var(--wechat-nav-bg);border-bottom:1px solid var(--wechat-border);font-size:13px;color:var(--wechat-text-secondary);';
+            // ★ 关键修改：直接追加到 inputBar 内部，而非插入到其前面
             const inputBar = document.getElementById('inputBar');
-            inputBar.parentNode.insertBefore(quoteBar, inputBar);
+            inputBar.appendChild(quoteBar); 
         }
         const sender = quotedMsg.sender === 'me' ? '我' : '对方';
         const content = quotedMsg.text || (quotedMsg.image ? '[图片]' : '');
@@ -170,12 +170,22 @@
             clearQuote();
         });
         if (msgInput) msgInput.focus();
+
+        // ★ 新增：显示引用条后，更新聊天区域底部间距，留出位置
+        if (typeof window.updateChatPadding === 'function') {
+            window.updateChatPadding();
+        }
     }
 
     function clearQuote() {
         const quoteBar = document.getElementById('quoteBar');
         if (quoteBar) quoteBar.style.display = 'none';
         quotedMessage = null;
+
+        // ★ 新增：隐藏引用条后，恢复聊天区域底部间距
+        if (typeof window.updateChatPadding === 'function') {
+            window.updateChatPadding();
+        }
     }
 
     function getQuotedMessage() {
