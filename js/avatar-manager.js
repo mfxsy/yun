@@ -23,7 +23,6 @@
             const bg = await localforage.getItem(getKey('chatBg'));
             if (bg !== undefined) chatBg = bg;
         } catch (e) {
-            // 若 getKey 失败（如 SESSION_ID 未定义），不要清空数据，直接返回
             console.warn('加载头像/背景失败，SESSION_ID 可能未就绪:', e);
             return;
         }
@@ -59,7 +58,8 @@
         },
         applyBg: function() {
             if (chatBg) {
-                document.documentElement.style.setProperty('--chat-bg-image', `url(${chatBg})`);
+                // 🛠️ 修复：加上了双引号包裹，防止逗号/括号等特殊字符导致 CSS 解析失败
+                document.documentElement.style.setProperty('--chat-bg-image', 'url("' + chatBg + '")');
                 document.body.classList.add('with-background');
             } else {
                 document.documentElement.style.removeProperty('--chat-bg-image');
@@ -144,6 +144,9 @@
             </div>
         `;
 
+        // ===============================
+        // 🛠️ 修复点 1：头像上传及自动压缩功能
+        // ===============================
         container.querySelectorAll('.avatar-upload-btn').forEach(btn => {
             btn.addEventListener('click', function() {
                 const target = this.dataset.target;
@@ -153,20 +156,39 @@
                 input.onchange = function(e) {
                     const file = e.target.files[0];
                     if (!file) return;
-                    if (file.size > 2 * 1024 * 1024) {
-                        showToast('图片不能超过10MB', 'error');
+                    // 统一改为 5MB
+                    if (file.size > 5 * 1024 * 1024) {
+                        showToast('图片不能超过5MB，请压缩后重试', 'error');
                         return;
                     }
                     const reader = new FileReader();
                     reader.onload = function(ev) {
-                        const dataUrl = ev.target.result;
-                        if (target === 'my') {
-                            window.avatarManager.setMyAvatar(dataUrl);
-                        } else {
-                            window.avatarManager.setPartnerAvatar(dataUrl);
-                        }
-                        renderPanel();
-                        showToast('头像已更新', 'success');
+                        const img = new Image();
+                        img.onload = function() {
+                            // 头像压缩逻辑：最大边压缩到 300px
+                            const canvas = document.createElement('canvas');
+                            const ctx = canvas.getContext('2d');
+                            let width = img.width;
+                            let height = img.height;
+                            const MAX_WIDTH = 300; 
+                            if (width > MAX_WIDTH) {
+                                height = (MAX_WIDTH / width) * height;
+                                width = MAX_WIDTH;
+                            }
+                            canvas.width = width;
+                            canvas.height = height;
+                            ctx.drawImage(img, 0, 0, width, height);
+                            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                            
+                            if (target === 'my') {
+                                window.avatarManager.setMyAvatar(dataUrl);
+                            } else {
+                                window.avatarManager.setPartnerAvatar(dataUrl);
+                            }
+                            renderPanel();
+                            showToast('头像已更新', 'success');
+                        };
+                        img.src = ev.target.result;
                     };
                     reader.readAsDataURL(file);
                 };
@@ -189,6 +211,9 @@
             });
         });
 
+        // ===============================
+        // 🛠️ 修复点 2：背景上传及自动压缩功能
+        // ===============================
         container.querySelector('.bg-upload-btn')?.addEventListener('click', function() {
             const input = document.createElement('input');
             input.type = 'file';
@@ -196,16 +221,35 @@
             input.onchange = function(e) {
                 const file = e.target.files[0];
                 if (!file) return;
-                if (file.size > 2 * 1024 * 1024) {
-                    showToast('图片不能超过10MB', 'error');
+                // 统一改为 10MB
+                if (file.size > 10 * 1024 * 1024) {
+                    showToast('图片不能超过10MB，请压缩后重试', 'error');
                     return;
                 }
                 const reader = new FileReader();
                 reader.onload = function(ev) {
-                    const dataUrl = ev.target.result;
-                    window.avatarManager.setChatBg(dataUrl);
-                    renderPanel();
-                    showToast('背景已更新', 'success');
+                    const img = new Image();
+                    img.onload = function() {
+                        // 背景压缩逻辑：最大边压缩到 1000px
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
+                        let width = img.width;
+                        let height = img.height;
+                        const MAX_WIDTH = 1000;
+                        if (width > MAX_WIDTH) {
+                            height = (MAX_WIDTH / width) * height;
+                            width = MAX_WIDTH;
+                        }
+                        canvas.width = width;
+                        canvas.height = height;
+                        ctx.drawImage(img, 0, 0, width, height);
+                        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+
+                        window.avatarManager.setChatBg(dataUrl);
+                        renderPanel();
+                        showToast('背景已更新', 'success');
+                    };
+                    img.src = ev.target.result;
                 };
                 reader.readAsDataURL(file);
             };
@@ -244,7 +288,6 @@
             });
         }
 
-        // 不再自动加载，改为由主程序在 SESSION_ID 就绪后调用 reload
         loadData().then(() => {
             window.avatarManager.applyBg();
             setTimeout(() => window.avatarManager.notifyUpdate(), 100);
