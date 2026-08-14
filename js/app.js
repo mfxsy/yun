@@ -7,37 +7,32 @@ document.addEventListener('DOMContentLoaded', async function() {
         window.SESSION_ID = sessionId;
         console.log('[app] 已获取会话ID:', window.SESSION_ID);
 
-        // 2. 加载各模块设置（容错加载）
-        if (window.frequencyManager) {
-            await window.frequencyManager.load();
-        }
-        if (window.quoteManager && typeof window.quoteManager.loadSettings === 'function') {
-            await window.quoteManager.loadSettings();
-        }
-        await loadTimestampSetting();
-        await loadNoReplySetting();
-        await loadNotificationSetting();
+        // 2. ★ 核心修改：将多个状态加载改为“并行容错加载”
+        // 使用 Promise.allSettled，即使某一个读取超时，也不会阻塞其他读取
+        const loadPromises = [
+            window.frequencyManager ? window.frequencyManager.load() : Promise.resolve(),
+            window.quoteManager && typeof window.quoteManager.loadSettings === 'function' ? window.quoteManager.loadSettings() : Promise.resolve(),
+            loadTimestampSetting(),
+            loadNoReplySetting(),
+            loadNotificationSetting()
+        ];
+        await Promise.allSettled(loadPromises);
 
-        // 3. 加载数据（使用安全存储）
+        // 3. 加载数据（使用安全存储）——单独处理
         const hasData = await loadMessages();
         if (!hasData) {
             window.messages = [];
-            
+            // ★ 注意：这里绝对不能写 await saveMessages()，以防覆盖掉旧数据
         }
 
-        // 4. 刷新各管理器
-        if (window.avatarManager && typeof window.avatarManager.reload === 'function') {
-            await window.avatarManager.reload();
-        }
-        if (window.emojiManager && typeof window.emojiManager.reload === 'function') {
-            await window.emojiManager.reload();
-        }
-        if (window.cardManager && typeof window.cardManager.reload === 'function') {
-            await window.cardManager.reload();
-        }
-        if (window.callManager && typeof window.callManager.checkCallInterruption === 'function') {
-            await window.callManager.checkCallInterruption();
-        }
+        // 4. 刷新各管理器（同样用并行，防止阻塞）
+        const reloadPromises = [
+            window.avatarManager && typeof window.avatarManager.reload === 'function' ? window.avatarManager.reload() : Promise.resolve(),
+            window.emojiManager && typeof window.emojiManager.reload === 'function' ? window.emojiManager.reload() : Promise.resolve(),
+            window.cardManager && typeof window.cardManager.reload === 'function' ? window.cardManager.reload() : Promise.resolve(),
+            window.callManager && typeof window.callManager.checkCallInterruption === 'function' ? window.callManager.checkCallInterruption() : Promise.resolve()
+        ];
+        await Promise.allSettled(reloadPromises);
 
         // 5. 应用主题
         if (window.isDark) {
