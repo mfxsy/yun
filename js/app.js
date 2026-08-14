@@ -22,7 +22,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         const hasData = await loadMessages();
         if (!hasData) {
             window.messages = [];
-            await saveMessages();
+            
         }
 
         // 4. 刷新各管理器
