@@ -66,6 +66,9 @@ document.addEventListener('DOMContentLoaded', async function() {
         // 8. 更新底部留白
         updateChatPadding();
 
+        // ★ 新增：检查并补发主动发送欠下的消息
+        catchUpActiveSends();
+
         // 9. 键盘滚动优化
         let prevInnerHeight = window.innerHeight;
         window.addEventListener('resize', function() {
@@ -112,3 +115,34 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
     }
 });
+
+// ★ 新增：补发主动发送欠下的消息（修复 window.settings 未定义报错）
+function catchUpActiveSends() {
+    // 获取 frequencyManager 实例
+    const fm = window.frequencyManager;
+    if (!fm) return;
+
+    // ★ 修复：获取 frequencyManager 中保存的主动发送设置
+    const fmSettings = fm.getSettings();
+    if (!fmSettings.activeEnabled) return;
+
+    const lastTime = fm.getLastActiveSendTime();
+    const interval = fmSettings.activeInterval * 60 * 1000; // 转毫秒
+    if (!lastTime || Date.now() - lastTime < interval) return; // 不足一个周期，无需补发
+
+    // 计算错过次数，最多补发5条
+    let missedCount = Math.floor((Date.now() - lastTime) / interval);
+    missedCount = Math.min(missedCount, 5);
+
+    // 依次补发，每条间隔1秒
+    for (let i = 0; i < missedCount; i++) {
+        setTimeout(() => {
+            if (typeof window.triggerReply === 'function') {
+                window.triggerReply(true); // 使用主动模式触发回复
+            }
+        }, i * 1000);
+    }
+
+    // 更新上次发送时间为当前时间（避免重复补发）
+    fm.setLastActiveSendTime(Date.now());
+}

@@ -7,15 +7,16 @@ window._isLoadingOlder = false;    // 防止重复触发
 window._hasLoadedAll = false;      // 是否已加载全部
 window._currentRenderedCount = 0;  // 当前DOM中渲染的消息数量
 
-// 6个月时间限制（毫秒）
-const SIX_MONTHS_MS = 180 * 24 * 60 * 60 * 1000;
+// ★★★ 核心修改：2年时间限制（毫秒） ★★★
+// 2年 = 730天 (365 * 2)
+const MAX_STORAGE_DURATION_MS = 2 * 365 * 24 * 60 * 60 * 1000;
 
 // ---- 新增：按时间修剪消息 ----
 function trimMessagesByDate(messages) {
-    const sixMonthsAgo = new Date(Date.now() - SIX_MONTHS_MS);
+    const maxAgeDate = new Date(Date.now() - MAX_STORAGE_DURATION_MS);
     return messages.filter(m => {
         const d = new Date(m.time);
-        return d >= sixMonthsAgo;
+        return d >= maxAgeDate;
     });
 }
 
@@ -55,7 +56,7 @@ async function loadMessages() {
     }
 
     if (data && typeof data === 'object' && Array.isArray(data.messages)) {
-        // 核心：按时间修剪，只保留最近6个月
+        // 核心：按时间修剪，只保留最近2年
         data.messages = trimMessagesByDate(data.messages || []);
         
         window.messages = data.messages;
@@ -141,16 +142,17 @@ function renderMessages() {
     messagesToRender.forEach((msg) => {
         const dateKey = getDateKey(msg.time);
         if (dateKey !== lastDateKey) {
+            // ★★★ 修复开始：直接用 dateKey 字符串拆分，避免 msg.time 是字符串时调用 .getFullYear() 报错 ★★★
             const label = (() => {
                 const now = new Date();
                 const today = getDateKey(now);
                 const yesterday = getDateKey(new Date(now.getTime() - 86400000));
                 if (dateKey === today) return '今天';
                 if (dateKey === yesterday) return '昨天';
-                // 👇 替换成下面这三行（直接拆解 dateKey 即可）
                 const parts = dateKey.split('-');
                 return parts[0] + '年' + parts[1] + '月' + parts[2] + '日';
-                })();
+            })();
+            // ★★★ 修复结束 ★★★
             html += `<div class="msg-timestamp">${label}</div>`;
             lastDateKey = dateKey;
         }
@@ -253,16 +255,17 @@ async function loadOlderMessages() {
 
     messagesToPrepend.forEach((msg) => {
         const dateKey = getDateKey(msg.time);
+        // ★★★ 修复开始：同样的日期逻辑替换 ★★★
         const label = (() => {
             const now = new Date();
             const today = getDateKey(now);
             const yesterday = getDateKey(new Date(now.getTime() - 86400000));
             if (dateKey === today) return '今天';
             if (dateKey === yesterday) return '昨天';
-            // 👇 替换成下面这三行（直接拆解 dateKey 即可）
-    const parts = dateKey.split('-');
-    return parts[0] + '年' + parts[1] + '月' + parts[2] + '日';
-})();
+            const parts = dateKey.split('-');
+            return parts[0] + '年' + parts[1] + '月' + parts[2] + '日';
+        })();
+        // ★★★ 修复结束 ★★★
 
         if (dateKey !== lastDateKey) {
             if (!(messagesToPrepend.indexOf(msg) === 0 && label === existingDate)) {
@@ -366,16 +369,17 @@ function appendMessageDOM(msg) {
 
     const dateKey = getDateKey(msg.time);
     if (dateKey !== window._lastDateKey) {
+        // ★★★ 修复开始：同样的日期逻辑替换 ★★★
         const label = (() => {
             const now = new Date();
             const today = getDateKey(now);
             const yesterday = getDateKey(new Date(now.getTime() - 86400000));
             if (dateKey === today) return '今天';
             if (dateKey === yesterday) return '昨天';
-             // 👇 替换成下面这三行（直接拆解 dateKey 即可）
-    const parts = dateKey.split('-');
-    return parts[0] + '年' + parts[1] + '月' + parts[2] + '日';
-})();
+            const parts = dateKey.split('-');
+            return parts[0] + '年' + parts[1] + '月' + parts[2] + '日';
+        })();
+        // ★★★ 修复结束 ★★★
         const ts = document.createElement('div');
         ts.className = 'msg-timestamp';
         ts.textContent = label;
@@ -745,7 +749,7 @@ function sendNotification() {
         window.notificationTimer = setTimeout(() => {
             const count = window.notificationCount;
             window.notificationCount = 0;
-            const title = '传讯 · 字卡';
+            const title = '遐思语';
             const body = `收到 ${count} 条新消息`;
             try {
                 new Notification(title, { body: body });

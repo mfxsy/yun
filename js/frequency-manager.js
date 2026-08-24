@@ -108,7 +108,6 @@
     let uiEventsBound = false;
 
     function renderUI() {
-        // ★ 修复：这里直接使用外层闭包的 settings 变量，不要调用不存在的 getSettings()
         console.log('[频率] 渲染面板，当前设置:', settings);
 
         const minSlider = document.getElementById('replyMinSlider');
@@ -248,6 +247,23 @@
 
     // ---------- 核心管理对象 ----------
     const frequencyManager = {
+        // ★ 新增：获取上次主动发送时间戳
+        getLastActiveSendTime: function() {
+            try {
+                return parseInt(localStorage.getItem(getStorageKey('lastActiveSendTime')) || '0', 10);
+            } catch (e) {
+                return 0;
+            }
+        },
+        // ★ 新增：保存上次主动发送时间戳
+        setLastActiveSendTime: function(timestamp) {
+            try {
+                localStorage.setItem(getStorageKey('lastActiveSendTime'), String(timestamp));
+            } catch (e) {
+                console.warn('保存上次主动发送时间失败', e);
+            }
+        },
+
         getSettings: function() { return { ...settings }; },
 
         updateSetting: async function(key, value) {
@@ -334,6 +350,8 @@
             activeTimer = setInterval(() => {
                 if (typeof callback === 'function') {
                     callback();
+                    // ★ 新增：每次触发主动发送后，记录当前时间戳
+                    this.setLastActiveSendTime(Date.now());
                 }
             }, intervalMs);
             console.log(`[频率] 主动发送定时器已启动，间隔 ${intervalMinutes} 分钟`);
