@@ -45,7 +45,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
 
         // =========================================================
-        // ★★★ 重点：在此处加入懒加载状态初始化配置 ★★★
+        // ★★★ 懒加载状态初始化配置 ★★★
         // =========================================================
         window.loadedBatchCount = 1;
         window._currentRenderedCount = 0;
@@ -56,18 +56,22 @@ document.addEventListener('DOMContentLoaded', async function() {
         if (DOM.contactName) DOM.contactName.textContent = window.partnerName;
         renderMessages();
 
-        // 7. 启动主动发送定时器
+        // 7. 启动主动发送定时器 + 检查补发
         if (window.frequencyManager) {
             window.frequencyManager.startActiveTimer(() => {
                 window.triggerReply(true);
             });
+
+            // ★ 检查并补发错过的主动发送消息（页面加载后稍晚执行，避免与渲染冲突）
+            setTimeout(() => {
+                window.frequencyManager.checkAndCatchUpActiveSend().catch(e => {
+                    console.warn('[app] 主动发送补发失败:', e);
+                });
+            }, 1200);
         }
 
         // 8. 更新底部留白
         updateChatPadding();
-
-        // ★ 新增：检查并补发主动发送欠下的消息
-        catchUpActiveSends();
 
         // 9. 键盘滚动优化
         let prevInnerHeight = window.innerHeight;
@@ -108,41 +112,10 @@ document.addEventListener('DOMContentLoaded', async function() {
         renderMessages();
         showToast('启动时遇到问题，但基本功能可用', 'warning', 4000);
     } finally {
-        // ★ 极其关键：不论前面的代码有没有报错，都必须强行绑定所有按钮事件，保证不出现“按键失灵”
+        // ★ 极其关键：不论前面的代码有没有报错，都必须强行绑定所有按钮事件，保证不出现"按键失灵"
         if (typeof setupEventListeners === 'function') {
             setupEventListeners();
             console.log('✅ 事件绑定安全执行完成');
         }
     }
 });
-
-// ★ 新增：补发主动发送欠下的消息（修复 window.settings 未定义报错）
-function catchUpActiveSends() {
-    // 获取 frequencyManager 实例
-    const fm = window.frequencyManager;
-    if (!fm) return;
-
-    // ★ 修复：获取 frequencyManager 中保存的主动发送设置
-    const fmSettings = fm.getSettings();
-    if (!fmSettings.activeEnabled) return;
-
-    const lastTime = fm.getLastActiveSendTime();
-    const interval = fmSettings.activeInterval * 60 * 1000; // 转毫秒
-    if (!lastTime || Date.now() - lastTime < interval) return; // 不足一个周期，无需补发
-
-    // 计算错过次数，最多补发5条
-    let missedCount = Math.floor((Date.now() - lastTime) / interval);
-    missedCount = Math.min(missedCount, 5);
-
-    // 依次补发，每条间隔1秒
-    for (let i = 0; i < missedCount; i++) {
-        setTimeout(() => {
-            if (typeof window.triggerReply === 'function') {
-                window.triggerReply(true); // 使用主动模式触发回复
-            }
-        }, i * 1000);
-    }
-
-    // 更新上次发送时间为当前时间（避免重复补发）
-    fm.setLastActiveSendTime(Date.now());
-}

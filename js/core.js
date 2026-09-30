@@ -8,8 +8,10 @@ window._hasLoadedAll = false;      // 是否已加载全部
 window._currentRenderedCount = 0;  // 当前DOM中渲染的消息数量
 
 // ★★★ 核心修改：2年时间限制（毫秒） ★★★
-// 2年 = 730天 (365 * 2)
 const MAX_STORAGE_DURATION_MS = 2 * 365 * 24 * 60 * 60 * 1000;
+
+// ★ 图片被选中的概率（当文本与图片同时存在时）
+const PARTNER_IMAGE_CHANCE = 0.30; // 30%
 
 // ---- 新增：按时间修剪消息 ----
 function trimMessagesByDate(messages) {
@@ -18,6 +20,26 @@ function trimMessagesByDate(messages) {
         const d = new Date(m.time);
         return d >= maxAgeDate;
     });
+}
+
+// ---------- 通用：从文本池 + 图片池里随机选一条 ----------
+function pickReplyContent(textPool, partnerImages) {
+    const hasText = Array.isArray(textPool) && textPool.length > 0;
+    const hasImage = Array.isArray(partnerImages) && partnerImages.length > 0;
+
+    if (hasText && hasImage) {
+        if (Math.random() < PARTNER_IMAGE_CHANCE) {
+            return { type: 'image', data: partnerImages[Math.floor(Math.random() * partnerImages.length)] };
+        }
+        return { type: 'text', data: textPool[Math.floor(Math.random() * textPool.length)] };
+    }
+    if (hasText) {
+        return { type: 'text', data: textPool[Math.floor(Math.random() * textPool.length)] };
+    }
+    if (hasImage) {
+        return { type: 'image', data: partnerImages[Math.floor(Math.random() * partnerImages.length)] };
+    }
+    return null;
 }
 
 // ---------- 1. 数据加载与保存 ----------
@@ -56,9 +78,8 @@ async function loadMessages() {
     }
 
     if (data && typeof data === 'object' && Array.isArray(data.messages)) {
-        // 核心：按时间修剪，只保留最近2年
         data.messages = trimMessagesByDate(data.messages || []);
-        
+
         window.messages = data.messages;
         window.partnerName = data.partnerName || '梦角';
         window.myName = data.myName || '我';
@@ -70,7 +91,7 @@ async function loadMessages() {
                 saveMessages().catch(() => {});
             }, 1000);
         }
-        return data.messages.length > 0; // 有数据返回 true
+        return data.messages.length > 0;
     }
 
     return false;
@@ -79,7 +100,6 @@ async function loadMessages() {
 async function saveMessages() {
     try {
         const key = getStorageKey('chatData');
-        // 核心：保存前也按时间修剪
         const messagesToSave = trimMessagesByDate(window.messages.slice());
         const data = {
             messages: messagesToSave,
@@ -109,6 +129,7 @@ function scrollToBottom() {
         chatArea.scrollTop = chatArea.scrollHeight;
     });
 }
+window.scrollToBottom = scrollToBottom;
 
 function renderMessages() {
     const chatArea = DOM.chatArea;
@@ -129,10 +150,9 @@ function renderMessages() {
         return;
     }
 
-    // 计算需要渲染的消息范围（从底部开始）
     let totalToShow = Math.min(window.messages.length, window.msgBatchSize * window.loadedBatchCount);
     if (totalToShow <= 0) totalToShow = Math.min(window.messages.length, window.msgBatchSize);
-    
+
     const startIndex = window.messages.length - totalToShow;
     const messagesToRender = window.messages.slice(startIndex);
 
@@ -142,7 +162,6 @@ function renderMessages() {
     messagesToRender.forEach((msg) => {
         const dateKey = getDateKey(msg.time);
         if (dateKey !== lastDateKey) {
-            // ★★★ 修复开始：直接用 dateKey 字符串拆分，避免 msg.time 是字符串时调用 .getFullYear() 报错 ★★★
             const label = (() => {
                 const now = new Date();
                 const today = getDateKey(now);
@@ -152,7 +171,6 @@ function renderMessages() {
                 const parts = dateKey.split('-');
                 return parts[0] + '年' + parts[1] + '月' + parts[2] + '日';
             })();
-            // ★★★ 修复结束 ★★★
             html += `<div class="msg-timestamp">${label}</div>`;
             lastDateKey = dateKey;
         }
@@ -210,7 +228,6 @@ function renderMessages() {
 
     chatArea.innerHTML = html;
 
-    // 已经删除了返回按钮逻辑，只有纯粹的滚动懒加载
     window._lastDateKey = messagesToRender.length > 0 ? getDateKey(messagesToRender[messagesToRender.length - 1].time) : '';
     window._currentRenderedCount = messagesToRender.length;
     if (window._currentRenderedCount >= window.messages.length) {
@@ -222,7 +239,7 @@ function renderMessages() {
 }
 window.renderMessages = renderMessages;
 
-// ★ 新增：向上滚动触顶时加载更旧的消息（仅保留懒加载）
+// ★ 向上滚动触顶加载更旧的消息
 async function loadOlderMessages() {
     if (window._isLoadingOlder) return;
     const total = window.messages.length;
@@ -250,12 +267,11 @@ async function loadOlderMessages() {
     let html = '';
     let lastDateKey = '';
     const firstChild = chatArea.firstChild;
-    const existingDate = (firstChild && firstChild.classList && firstChild.classList.contains('msg-timestamp')) 
+    const existingDate = (firstChild && firstChild.classList && firstChild.classList.contains('msg-timestamp'))
         ? firstChild.textContent : null;
 
     messagesToPrepend.forEach((msg) => {
         const dateKey = getDateKey(msg.time);
-        // ★★★ 修复开始：同样的日期逻辑替换 ★★★
         const label = (() => {
             const now = new Date();
             const today = getDateKey(now);
@@ -265,7 +281,6 @@ async function loadOlderMessages() {
             const parts = dateKey.split('-');
             return parts[0] + '年' + parts[1] + '月' + parts[2] + '日';
         })();
-        // ★★★ 修复结束 ★★★
 
         if (dateKey !== lastDateKey) {
             if (!(messagesToPrepend.indexOf(msg) === 0 && label === existingDate)) {
@@ -339,28 +354,25 @@ async function loadOlderMessages() {
     window._isLoadingOlder = false;
 }
 
-// ★ 仅保留懒加载滚动监听（已彻底去掉返回按钮逻辑）
 function initScrollLazyLoad() {
     const chatArea = DOM.chatArea;
     if (!chatArea) return;
 
     chatArea.addEventListener('scroll', () => {
         const scrollTop = chatArea.scrollTop;
-        // 触顶且未加载完
         if (scrollTop <= 10 && !window._isLoadingOlder && !window._hasLoadedAll) {
             loadOlderMessages();
         }
     });
 }
 
-// 在页面加载后调用
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initScrollLazyLoad);
 } else {
     initScrollLazyLoad();
 }
 
-// ---------- 3. 增量追加（用于新消息，避免重绘整个列表） ----------
+// ---------- 3. 增量追加 ----------
 function appendMessageDOM(msg) {
     const chatArea = DOM.chatArea;
     if (!chatArea) return;
@@ -369,7 +381,6 @@ function appendMessageDOM(msg) {
 
     const dateKey = getDateKey(msg.time);
     if (dateKey !== window._lastDateKey) {
-        // ★★★ 修复开始：同样的日期逻辑替换 ★★★
         const label = (() => {
             const now = new Date();
             const today = getDateKey(now);
@@ -379,7 +390,6 @@ function appendMessageDOM(msg) {
             const parts = dateKey.split('-');
             return parts[0] + '年' + parts[1] + '月' + parts[2] + '日';
         })();
-        // ★★★ 修复结束 ★★★
         const ts = document.createElement('div');
         ts.className = 'msg-timestamp';
         ts.textContent = label;
@@ -495,7 +505,6 @@ window.sendMessage = async function(text, image) {
     return true;
 };
 
-// 更新已读回执
 function updateReadReceipt(msgId) {
     const row = DOM.chatArea ? DOM.chatArea.querySelector(`.msg-row[data-msg-id="${msgId}"]`) : null;
     if (row) {
@@ -507,7 +516,6 @@ function updateReadReceipt(msgId) {
     }
 }
 
-// 添加外部消息（用于对方回复）
 window.addMessage = function(text, sender, type) {
     sender = sender || 'me';
     type = type || 'normal';
@@ -594,6 +602,7 @@ function triggerReply(fromActive) {
             return recentMyMsgs[Math.floor(Math.random() * recentMyMsgs.length)];
         }
 
+        // 合并消息（仅在合并配置开启时触发）
         if (window.frequencyManager && textPool.length > 0) {
             const mergeResult = window.frequencyManager.mergeReplies(cards, textEmojis);
             if (mergeResult) {
@@ -601,18 +610,14 @@ function triggerReply(fromActive) {
             }
         }
 
+        // ★ 核心修改：使用 pickReplyContent 提高图片被选中的概率
         if (replyText === null && replyImage === null) {
-            const mixedPool = [];
-            textPool.forEach(t => mixedPool.push({ type: 'text', data: t }));
-            partnerImages.forEach(src => mixedPool.push({ type: 'image', data: src }));
-
-            if (mixedPool.length === 0) return;
-
-            const chosen = mixedPool[Math.floor(Math.random() * mixedPool.length)];
-            if (chosen.type === 'text') {
-                replyText = chosen.data;
+            const pick = pickReplyContent(textPool, partnerImages);
+            if (!pick) return;
+            if (pick.type === 'text') {
+                replyText = pick.data;
             } else {
-                replyImage = chosen.data;
+                replyImage = pick.data;
             }
         }
 
@@ -657,18 +662,14 @@ function triggerReply(fromActive) {
                 }
             }
 
+            // ★ 核心修改：使用 pickReplyContent 提高图片被选中的概率
             if (extraText === null && extraImage === null) {
-                const mixedPool = [];
-                textPool.forEach(t => mixedPool.push({ type: 'text', data: t }));
-                partnerImages.forEach(src => mixedPool.push({ type: 'image', data: src }));
-
-                if (mixedPool.length === 0) break;
-
-                const chosen = mixedPool[Math.floor(Math.random() * mixedPool.length)];
-                if (chosen.type === 'text') {
-                    extraText = chosen.data;
+                const pick = pickReplyContent(textPool, partnerImages);
+                if (!pick) break;
+                if (pick.type === 'text') {
+                    extraText = pick.data;
                 } else {
-                    extraImage = chosen.data;
+                    extraImage = pick.data;
                 }
             }
 

@@ -1,4 +1,4 @@
-// js/frequency-manager.js（完整扩展版）
+// js/frequency-manager.js（完整扩展版 + 主动发送补发·按正确时间戳）
 (function() {
     'use strict';
 
@@ -18,6 +18,82 @@
 
     function getKey() {
         return getStorageKey('frequencySettings');
+    }
+
+    // ---------- 主动发送补发：时间戳存取 ----------
+    function getLastActiveSendKey() {
+        return getStorageKey('lastActiveSendTime');
+    }
+
+    async function updateLastActiveSendTime(timestamp) {
+        try {
+            await safeSetItem(getLastActiveSendKey(), timestamp || Date.now());
+        } catch (e) {
+            console.warn('[频率] 更新最后主动发送时间失败:', e);
+        }
+    }
+
+    async function getLastActiveSendTime() {
+        try {
+            const val = await safeGetItem(getLastActiveSendKey());
+            return val ? Number(val) : 0;
+        } catch (e) {
+            return 0;
+        }
+    }
+
+    // ---------- 直接生成一条对方消息（带指定时间戳，不走 triggerReply） ----------
+    async function simulatePartnerMessage(sendTime) {
+        const cards = window.cardManager ? window.cardManager.getCards() : [];
+        const textEmojis = window.cardManager ? window.cardManager.getTextEmojis() : [];
+        const partnerImages = window.emojiManager ? window.emojiManager.getPartnerEmojis() : [];
+        const textPool = [...cards, ...textEmojis];
+
+        let text = '';
+        let image = null;
+
+        if (textPool.length > 0 && partnerImages.length > 0) {
+            if (Math.random() < 0.7) {
+                text = textPool[Math.floor(Math.random() * textPool.length)];
+            } else {
+                image = partnerImages[Math.floor(Math.random() * partnerImages.length)];
+            }
+        } else if (textPool.length > 0) {
+            text = textPool[Math.floor(Math.random() * textPool.length)];
+        } else if (partnerImages.length > 0) {
+            image = partnerImages[Math.floor(Math.random() * partnerImages.length)];
+        } else {
+            // 没有可发送的内容
+            return;
+        }
+
+        const msg = {
+            id: ++window.lastMsgId,
+            sender: 'partner',
+            text: text || '',
+            image: image || null,
+            // ★ 关键：使用传入的“应发送时间”，而不是当前时间
+            time: (sendTime instanceof Date) ? sendTime : new Date(),
+            read: true,
+            type: 'normal',
+        };
+        window.messages.push(msg);
+
+        if (window.messages.length === 1) {
+            if (typeof window.renderMessages === 'function') window.renderMessages();
+        } else if (typeof window.appendMessageDOM === 'function') {
+            // appendMessageDOM 会依据 msg.time 判断日期分隔线，自动显示“昨天/今天”等
+            window.appendMessageDOM(msg);
+        }
+
+        if (typeof window.saveMessages === 'function') {
+            await window.saveMessages();
+        }
+
+        // 系统通知（若用户开启）
+        if (typeof window.sendNotification === 'function') {
+            try { window.sendNotification(); } catch (e) {}
+        }
     }
 
     // ★ 加载设置，并严格防止错误覆盖数据
@@ -247,29 +323,18 @@
 
     // ---------- 核心管理对象 ----------
     const frequencyManager = {
-        // ★ 新增：获取上次主动发送时间戳
-        getLastActiveSendTime: function() {
-            try {
-                return parseInt(localStorage.getItem(getStorageKey('lastActiveSendTime')) || '0', 10);
-            } catch (e) {
-                return 0;
-            }
-        },
-        // ★ 新增：保存上次主动发送时间戳
-        setLastActiveSendTime: function(timestamp) {
-            try {
-                localStorage.setItem(getStorageKey('lastActiveSendTime'), String(timestamp));
-            } catch (e) {
-                console.warn('保存上次主动发送时间失败', e);
-            }
-        },
-
         getSettings: function() { return { ...settings }; },
 
         updateSetting: async function(key, value) {
             if (key in settings) {
                 settings[key] = value;
                 await saveSettings();
+
+                // 开启主动发送时，重置上次发送时间戳（防止立即补发）
+                if (key === 'activeEnabled' && value === true) {
+                    await updateLastActiveSendTime();
+                }
+
                 if (key === 'activeEnabled' || key === 'activeInterval') {
                     this.restartActiveTimer();
                 }
@@ -347,11 +412,18 @@
             if (!settings.activeEnabled) return;
             const intervalMinutes = Math.max(1, Math.min(300, settings.activeInterval));
             const intervalMs = intervalMinutes * 60 * 1000;
+
+            // 若从未记录过时间戳，则初始化为当前时间，避免首次打开就补发
+            getLastActiveSendTime().then(last => {
+                if (!last) {
+                    updateLastActiveSendTime();
+                }
+            });
+
             activeTimer = setInterval(() => {
+                updateLastActiveSendTime();
                 if (typeof callback === 'function') {
                     callback();
-                    // ★ 新增：每次触发主动发送后，记录当前时间戳
-                    this.setLastActiveSendTime(Date.now());
                 }
             }, intervalMs);
             console.log(`[频率] 主动发送定时器已启动，间隔 ${intervalMinutes} 分钟`);
@@ -368,6 +440,51 @@
         restartActiveTimer: function(callback) {
             this.stopActiveTimer();
             this.startActiveTimer(callback);
+        },
+
+        /**
+         * ★ 页面加载时检查并补发错过的主动发送消息
+         * 时间戳逻辑：
+         *   - lastTime 是上次实际发送（或记录）的时间
+         *   - 第 1 条补发应发生在 lastTime + intervalMs
+         *   - 第 n 条补发应发生在 lastTime + intervalMs * n
+         *   - 补发条数上限 5 条，若错过更多，则补发“最近 5 次”的时间点
+         */
+        checkAndCatchUpActiveSend: async function() {
+            if (!settings.activeEnabled) return;
+            const intervalMinutes = Math.max(1, Math.min(300, settings.activeInterval));
+            const intervalMs = intervalMinutes * 60 * 1000;
+            const lastTime = await getLastActiveSendTime();
+            if (!lastTime) {
+                await updateLastActiveSendTime();
+                return;
+            }
+
+            const now = Date.now();
+            const elapsed = now - lastTime;
+            if (elapsed < intervalMs) return;
+
+            const totalMissed = Math.floor(elapsed / intervalMs);
+            if (totalMissed <= 0) return;
+
+            const MAX_CATCH_UP = 5;
+            const toSend = Math.min(totalMissed, MAX_CATCH_UP);
+            // 如果错过次数超过上限，只补发最近的 toSend 次
+            const startIdx = totalMissed - toSend;
+
+            console.log(`[频率] 共错过 ${totalMissed} 次主动发送，将补发 ${toSend} 条（时间点从第 ${startIdx + 1} 次到第 ${totalMissed} 次）`);
+
+            for (let i = 0; i < toSend; i++) {
+                // 第 (startIdx + i + 1) 次应发送的时间
+                const sendTime = new Date(lastTime + intervalMs * (startIdx + i + 1));
+                // 每条间隔 1.5 秒出现，观感自然
+                await new Promise(resolve => setTimeout(resolve, 1500));
+                await simulatePartnerMessage(sendTime);
+            }
+
+            // 补发完成后，把时间戳更新为当前时间，避免下次重复补发
+            await updateLastActiveSendTime(Date.now());
+            console.log('[频率] 补发完成');
         },
 
         load: loadSettings,
@@ -394,5 +511,5 @@
     };
 
     window.frequencyManager = frequencyManager;
-    console.log('✅ frequencyManager 已加载，包含UI管理');
+    console.log('✅ frequencyManager 已加载，包含UI管理 + 主动发送补发（按正确时间戳）');
 })();
