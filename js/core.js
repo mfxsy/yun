@@ -11,7 +11,7 @@ window._currentRenderedCount = 0;  // 当前DOM中渲染的消息数量
 const MAX_STORAGE_DURATION_MS = 2 * 365 * 24 * 60 * 60 * 1000;
 
 // ★ 图片被选中的概率（当文本与图片同时存在时）
-const PARTNER_IMAGE_CHANCE = 0.30; // 30%
+const PARTNER_IMAGE_CHANCE = 0.20; // 20%
 
 // ---- 新增：按时间修剪消息 ----
 function trimMessagesByDate(messages) {
